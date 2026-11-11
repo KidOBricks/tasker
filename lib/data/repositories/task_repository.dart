@@ -15,11 +15,15 @@ class TaskRepository {
 
   TaskRepository(this._prefs);
 
-  static Future<TaskRepository> init() async {
-    final prefs = await SharedPreferences.getInstance();
+  static Future<TaskRepository> initWithPrefs(SharedPreferences prefs) async {
     final repo = TaskRepository(prefs);
     await repo._ensureInitialData();
     return repo;
+  }
+
+  static Future<TaskRepository> init() async {
+    final prefs = await SharedPreferences.getInstance();
+    return initWithPrefs(prefs);
   }
 
   Future<void> _ensureInitialData() async {

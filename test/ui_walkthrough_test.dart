@@ -3,8 +3,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:task_calendar_sync/data/repositories/task_repository.dart';
+import 'package:task_calendar_sync/data/services/auth_service.dart';
+import 'package:task_calendar_sync/data/services/database_service.dart';
 import 'package:task_calendar_sync/main.dart';
 import 'package:task_calendar_sync/state/app_state.dart';
+import 'package:task_calendar_sync/state/auth_state.dart';
 
 void main() {
   testWidgets('Full UI walkthrough: navigation, accordions, categories, and settings', (WidgetTester tester) async {
@@ -17,12 +20,17 @@ void main() {
     });
 
     SharedPreferences.setMockInitialValues({});
-    final repository = await TaskRepository.init();
+    final prefs = await SharedPreferences.getInstance();
+    final repository = await TaskRepository.initWithPrefs(prefs);
+    final authService = AuthService(prefs);
+    final databaseService = DatabaseService(prefs);
 
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           repositoryProvider.overrideWithValue(repository),
+          authServiceProvider.overrideWithValue(authService),
+          databaseServiceProvider.overrideWithValue(databaseService),
         ],
         child: const TaskCalendarSyncApp(),
       ),
@@ -92,5 +100,12 @@ void main() {
     expect(find.text('Priority & Escalation Windows'), findsWidgets);
     expect(find.text('Vacation Mode'), findsWidgets);
     expect(find.text('Edit Auto-Scheduled Tasks'), findsWidgets);
+
+    // 8. Test Navigation to Admin Console Screen
+    await tester.tap(find.byIcon(Icons.admin_panel_settings_outlined));
+    await tester.pumpAndSettle();
+    expect(find.text('Admin Console'), findsWidgets);
+    expect(find.text('Registered Users Directory'), findsWidgets);
+    expect(find.text('Total Users'), findsWidgets);
   });
 }

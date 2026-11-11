@@ -1,20 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'data/repositories/task_repository.dart';
+import 'data/services/auth_service.dart';
+import 'data/services/database_service.dart';
 import 'state/app_state.dart';
+import 'state/auth_state.dart';
 import 'ui/theme/app_theme.dart';
 import 'ui/layout/adaptive_scaffold.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Initialize offline-first reactive repository layer
-  final repository = await TaskRepository.init();
+  // Initialize SharedPreferences and multi-tenant services
+  final prefs = await SharedPreferences.getInstance();
+  final repository = await TaskRepository.initWithPrefs(prefs);
+  final authService = AuthService(prefs);
+  final databaseService = DatabaseService(prefs);
 
   runApp(
     ProviderScope(
       overrides: [
         repositoryProvider.overrideWithValue(repository),
+        authServiceProvider.overrideWithValue(authService),
+        databaseServiceProvider.overrideWithValue(databaseService),
       ],
       child: const TaskCalendarSyncApp(),
     ),
@@ -27,7 +36,7 @@ class TaskCalendarSyncApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SyncTask - Task & Calendar',
+      title: 'Tasker - Task & Calendar Sync',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.darkTheme(),
       home: const AdaptiveScaffold(),
