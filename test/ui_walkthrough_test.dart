@@ -5,9 +5,13 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:task_calendar_sync/data/repositories/task_repository.dart';
 import 'package:task_calendar_sync/data/services/auth_service.dart';
 import 'package:task_calendar_sync/data/services/database_service.dart';
+import 'package:task_calendar_sync/data/services/calendar_integration_service.dart';
+import 'package:task_calendar_sync/data/services/email_integration_service.dart';
 import 'package:task_calendar_sync/main.dart';
 import 'package:task_calendar_sync/state/app_state.dart';
 import 'package:task_calendar_sync/state/auth_state.dart';
+import 'package:task_calendar_sync/state/integration_state.dart';
+import 'package:task_calendar_sync/ui/screens/admin/admin_console_screen.dart';
 
 void main() {
   testWidgets('Full UI walkthrough: navigation, accordions, categories, and settings', (WidgetTester tester) async {
@@ -24,6 +28,8 @@ void main() {
     final repository = await TaskRepository.initWithPrefs(prefs);
     final authService = AuthService(prefs);
     final databaseService = DatabaseService(prefs);
+    final calendarService = CalendarIntegrationService(prefs);
+    final emailService = EmailIntegrationService(prefs);
 
     await tester.pumpWidget(
       ProviderScope(
@@ -31,6 +37,8 @@ void main() {
           repositoryProvider.overrideWithValue(repository),
           authServiceProvider.overrideWithValue(authService),
           databaseServiceProvider.overrideWithValue(databaseService),
+          calendarIntegrationServiceProvider.overrideWithValue(calendarService),
+          emailIntegrationServiceProvider.overrideWithValue(emailService),
         ],
         child: const TaskCalendarSyncApp(),
       ),
@@ -81,6 +89,7 @@ void main() {
     await tester.tap(find.byIcon(Icons.calendar_month_outlined));
     await tester.pumpAndSettle();
     expect(find.text('Calendar & Integrations'), findsWidgets);
+    expect(find.textContaining('Connected Personal Calendar Accounts'), findsOneWidget);
 
     // 5. Test Navigation to Progress Screen
     await tester.tap(find.byIcon(Icons.bar_chart_outlined));
@@ -97,12 +106,37 @@ void main() {
     await tester.tap(find.byIcon(Icons.settings_outlined));
     await tester.pumpAndSettle();
     expect(find.text('Profile & Settings'), findsWidgets);
+    expect(find.text('Cloud Sync & Connected Accounts'), findsOneWidget);
     expect(find.text('Priority & Escalation Windows'), findsWidgets);
-    expect(find.text('Vacation Mode'), findsWidgets);
     expect(find.text('Edit Auto-Scheduled Tasks'), findsWidgets);
+    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.pumpAndSettle();
+    expect(find.text('Vacation Mode'), findsWidgets);
 
-    // 8. Test Navigation to Admin Console Screen
-    await tester.tap(find.byIcon(Icons.admin_panel_settings_outlined));
+  });
+
+  testWidgets('Dedicated Admin Console walkthrough mounts correctly', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1280, 800);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(() {
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
+    });
+
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final authService = AuthService(prefs);
+    final databaseService = DatabaseService(prefs);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          authServiceProvider.overrideWithValue(authService),
+          databaseServiceProvider.overrideWithValue(databaseService),
+        ],
+        child: const MaterialApp(home: AdminConsoleScreen()),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.text('Admin Console'), findsWidgets);
     expect(find.text('Registered Users Directory'), findsWidgets);

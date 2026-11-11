@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/app_theme.dart';
@@ -59,6 +60,9 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
     final overdueCount = sectioned.overdueTasks.length;
     final isDesktop = MediaQuery.of(context).size.width >= 800;
     final isAdmin = currentUser.isAdmin;
+    // Admin panel is restricted to the Web App for enterprise management;
+    // Native Windows & Android clients are clean regular user apps.
+    final showAdminTab = kIsWeb && isAdmin;
 
     final screens = [
       const HomeScreen(),
@@ -66,7 +70,7 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
       const ProgressScreen(),
       const IdeasScreen(),
       const SettingsScreen(),
-      if (isAdmin) const AdminConsoleScreen(),
+      if (showAdminTab) const AdminConsoleScreen(),
     ];
 
     if (_selectedIndex >= screens.length) {
@@ -191,7 +195,7 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
                   selectedIcon: Icon(Icons.settings, color: AppColors.primary),
                   label: Text('Profile'),
                 ),
-                if (isAdmin)
+                if (showAdminTab)
                   const NavigationRailDestination(
                     icon: Icon(Icons.admin_panel_settings_outlined),
                     selectedIcon: Icon(Icons.admin_panel_settings, color: AppColors.primary),
@@ -310,7 +314,7 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
             selectedIcon: Icon(Icons.person, color: AppColors.primary),
             label: 'Profile',
           ),
-          if (isAdmin)
+          if (showAdminTab)
             const NavigationDestination(
               icon: Icon(Icons.admin_panel_settings_outlined),
               selectedIcon: Icon(Icons.admin_panel_settings, color: AppColors.primary),

@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../state/app_state.dart';
+import '../../../state/auth_state.dart';
+import '../../../state/integration_state.dart';
 import '../../theme/app_theme.dart';
 import 'auto_scheduled_tasks_screen.dart';
 
@@ -169,7 +171,190 @@ class SettingsScreen extends ConsumerWidget {
           ),
           const SizedBox(height: 18),
 
-          // 2. Custom Importance Escalation Rules Section
+          // 2. Cloud Sync & Connected Accounts Section
+          const Text('Cloud Sync & Connected Accounts', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+          const SizedBox(height: 10),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Cloud Database Row
+                  Consumer(
+                    builder: (context, ref, _) {
+                      final syncStatus = ref.watch(syncStatusProvider);
+                      final dbService = ref.read(databaseServiceProvider);
+                      return Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.cloud_sync, color: AppColors.primary, size: 20),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    const Text('Google Cloud Firestore', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.green.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                                      ),
+                                      child: Text(
+                                        syncStatus.value?.displayName ?? 'Cloud Synced',
+                                        style: const TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Text('Project: ${dbService.firebaseProjectId} • Two-way real-time replication', style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                              ],
+                            ),
+                          ),
+                          ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                              textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                            onPressed: () async {
+                              final auth = ref.read(authProvider);
+                              await ref.read(databaseServiceProvider).performCloudSync(userId: auth?.id);
+                              if (context.mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(content: Text('Two-way cloud synchronization complete!')),
+                                );
+                              }
+                            },
+                            child: const Text('Sync Now'),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                  const Divider(color: AppColors.border, height: 26),
+
+                  // Google Account (Calendar & Gmail)
+                  Consumer(
+                    builder: (context, ref, _) {
+                      final accounts = ref.watch(connectedAccountsProvider);
+                      final isConnected = accounts.google != null;
+                      return Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.g_mobiledata, color: Colors.blue, size: 20),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  isConnected ? 'Google Account (${accounts.google!.email})' : 'Google Account (Calendar & Gmail)',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                                Text(
+                                  isConnected ? 'Syncing Google Calendar events and Gmail task AI' : 'Not connected. Connect to sync Google Calendar and Gmail.',
+                                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                ),
+                              ],
+                            ),
+                          ),
+                          OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: isConnected ? AppColors.overdue : Colors.blue,
+                              side: BorderSide(color: isConnected ? AppColors.overdue.withValues(alpha: 0.5) : Colors.blue),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () {
+                              if (isConnected) {
+                                ref.read(connectedAccountsProvider.notifier).disconnectGoogle();
+                              } else {
+                                ref.read(connectedAccountsProvider.notifier).connectGoogle(email: 'user@gmail.com');
+                              }
+                            },
+                            child: Text(isConnected ? 'Disconnect' : 'Connect'),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                  const Divider(color: AppColors.border, height: 26),
+
+                  // Microsoft Outlook Account
+                  Consumer(
+                    builder: (context, ref, _) {
+                      final accounts = ref.watch(connectedAccountsProvider);
+                      final isConnected = accounts.outlook != null;
+                      return Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: Colors.cyan.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: const Icon(Icons.calendar_today, color: Colors.cyan, size: 20),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  isConnected ? 'Microsoft 365 (${accounts.outlook!.email})' : 'Microsoft 365 / Outlook Calendar',
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                                Text(
+                                  isConnected ? 'Syncing Outlook Calendar events via Microsoft Graph' : 'Not connected. Connect to sync work meetings and prep tasks.',
+                                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                ),
+                              ],
+                            ),
+                          ),
+                          OutlinedButton(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: isConnected ? AppColors.overdue : Colors.cyan,
+                              side: BorderSide(color: isConnected ? AppColors.overdue.withValues(alpha: 0.5) : Colors.cyan),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () {
+                              if (isConnected) {
+                                ref.read(connectedAccountsProvider.notifier).disconnectOutlook();
+                              } else {
+                                ref.read(connectedAccountsProvider.notifier).connectOutlook(email: 'user@outlook.com');
+                              }
+                            },
+                            child: Text(isConnected ? 'Disconnect' : 'Connect'),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 18),
+
+          // 3. Custom Importance Escalation Rules Section
           const Text('Priority & Escalation Windows', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
           const SizedBox(height: 10),
           Card(

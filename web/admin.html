@@ -1,0 +1,602 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tasker Enterprise - Admin Web Console</title>
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  <style>
+    /* Custom scrollbars */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.2); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col font-sans antialiased select-none">
+
+  <!-- Top Navigation Header -->
+  <header class="h-16 border-b border-slate-800 bg-slate-900/90 px-6 flex items-center justify-between shrink-0 backdrop-blur-md sticky top-0 z-40">
+    <div class="flex items-center gap-4">
+      <div class="w-10 h-10 rounded-xl bg-purple-600/20 border border-purple-500/40 flex items-center justify-center text-purple-400 font-bold shadow-lg shadow-purple-600/20">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
+      </div>
+      <div>
+        <div class="flex items-center gap-2">
+          <h1 class="font-bold text-base text-white">Tasker Admin Console</h1>
+          <span class="text-[10px] bg-purple-500/20 text-purple-300 border border-purple-500/30 px-2 py-0.5 rounded font-mono font-bold">ENTERPRISE WEB</span>
+        </div>
+        <p class="text-[11px] text-slate-400">Multi-Tenant User Management & Cloud Sync Hub</p>
+      </div>
+    </div>
+
+    <!-- Right Controls: Live Sync Status, Force Sync, Back to App, Profile -->
+    <div class="flex items-center gap-3">
+      <!-- Live Cloud Health Pill -->
+      <div class="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-950 border border-slate-800 text-xs">
+        <span id="cloud-status-dot" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+        <span id="cloud-status-text" class="text-slate-300 font-mono text-[11px]">Firestore Connected (18ms)</span>
+      </div>
+
+      <!-- Force Cloud Sync Trigger -->
+      <button onclick="triggerAdminCloudSync()" class="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold border border-slate-700 transition flex items-center gap-1.5 shadow">
+        <svg id="sync-icon" class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+        <span>Force 2-Way Sync</span>
+      </button>
+
+      <!-- Back to User App Link -->
+      <a href="http://localhost:8080" target="_blank" class="px-3.5 py-2 rounded-xl bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 text-xs font-semibold border border-indigo-500/30 transition flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+        <span>Open User App</span>
+      </a>
+
+      <!-- Admin Profile Chip -->
+      <div class="flex items-center gap-2 pl-2 border-l border-slate-800">
+        <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-purple-600 to-indigo-600 flex items-center justify-center font-bold text-xs text-white shadow">
+          AM
+        </div>
+        <div class="hidden sm:block text-left">
+          <p class="text-xs font-bold text-white">Alex Morgan</p>
+          <p class="text-[10px] text-purple-400 font-mono">Super Admin</p>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Admin Layout -->
+  <div class="flex-1 flex overflow-hidden">
+
+    <!-- Admin Left Navigation -->
+    <aside class="w-64 bg-slate-900 border-r border-slate-800 p-4 flex flex-col justify-between shrink-0 hidden lg:flex">
+      <nav class="space-y-1">
+        <button onclick="switchAdminSection('users')" id="nav-users" class="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium transition bg-purple-600 text-white shadow-lg shadow-purple-600/20">
+          <div class="flex items-center gap-3">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+            <span>User Directory</span>
+          </div>
+          <span id="badge-total-users" class="text-xs bg-purple-950 px-2 py-0.5 rounded-full font-mono">4</span>
+        </button>
+
+        <button onclick="switchAdminSection('cloud')" id="nav-cloud" class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
+          <span>Cloud Database & Sync</span>
+        </button>
+
+        <button onclick="switchAdminSection('apis')" id="nav-apis" class="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <span>External API Health</span>
+        </button>
+      </nav>
+
+      <!-- System Environment Card -->
+      <div class="p-3.5 bg-slate-950/80 rounded-xl border border-slate-800 text-xs space-y-1.5">
+        <div class="flex items-center justify-between text-slate-400 font-mono text-[10px]">
+          <span>PROJECT</span>
+          <span class="text-indigo-400 font-bold">tasker-prod</span>
+        </div>
+        <div class="flex items-center justify-between text-slate-400 font-mono text-[10px]">
+          <span>REGION</span>
+          <span class="text-slate-200">us-east1 (Multi-Reg)</span>
+        </div>
+        <div class="flex items-center justify-between text-slate-400 font-mono text-[10px]">
+          <span>SECURITY</span>
+          <span class="text-emerald-400 font-bold">Role Guard Active</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Admin Dashboard Content -->
+    <main class="flex-1 overflow-y-auto p-6 md:p-8 space-y-8 bg-slate-950">
+
+      <!-- ================= SECTION 1: USER DIRECTORY ================= -->
+      <div id="section-users" class="space-y-6">
+
+        <!-- 4 KPI Overview Cards -->
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <div class="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
+            <span class="text-xs text-slate-400 font-medium">Total Registered Users</span>
+            <div class="flex items-baseline justify-between mt-2">
+              <span id="kpi-users-total" class="text-2xl font-bold text-white">4</span>
+              <span class="text-[11px] text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded">+100% active</span>
+            </div>
+          </div>
+
+          <div class="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
+            <span class="text-xs text-slate-400 font-medium">Active Accounts</span>
+            <div class="flex items-baseline justify-between mt-2">
+              <span id="kpi-users-active" class="text-2xl font-bold text-emerald-400">3</span>
+              <span class="text-[11px] text-slate-400 font-mono">1 Suspended</span>
+            </div>
+          </div>
+
+          <div class="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
+            <span class="text-xs text-slate-400 font-medium">System Administrators</span>
+            <div class="flex items-baseline justify-between mt-2">
+              <span id="kpi-users-admins" class="text-2xl font-bold text-purple-400">1</span>
+              <span class="text-[11px] text-purple-300 font-mono bg-purple-500/10 px-2 py-0.5 rounded">25% of users</span>
+            </div>
+          </div>
+
+          <div class="bg-slate-900/80 border border-slate-800 p-5 rounded-2xl">
+            <span class="text-xs text-slate-400 font-medium">Synced Cloud Tasks</span>
+            <div class="flex items-baseline justify-between mt-2">
+              <span id="kpi-synced-tasks" class="text-2xl font-bold text-indigo-400">20</span>
+              <span class="text-[11px] text-emerald-400 font-semibold bg-emerald-500/10 px-2 py-0.5 rounded">0 conflicts</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Directory Management Card -->
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <h2 class="text-base font-bold text-white">Enterprise User Directory</h2>
+              <p class="text-xs text-slate-400">Manage user accounts, assign admin privileges, and control platform access</p>
+            </div>
+            <button onclick="openAddUserModal()" class="px-4 py-2 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold shadow-lg shadow-purple-600/30 transition flex items-center gap-1.5">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+              <span>Add User Account</span>
+            </button>
+          </div>
+
+          <!-- Filter & Search Toolbar -->
+          <div class="flex flex-col md:flex-row items-center justify-between gap-3">
+            <div class="w-full md:w-80 relative">
+              <input type="text" id="user-search-input" oninput="renderUserDirectoryTable()" placeholder="Search directory by name, email, or role..." class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 pl-10 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-purple-500">
+              <svg class="w-4 h-4 text-slate-500 absolute left-3.5 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+            </div>
+            <div class="flex items-center gap-2 w-full md:w-auto">
+              <select id="user-role-filter" onchange="renderUserDirectoryTable()" class="bg-slate-950 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2.5">
+                <option value="all">All Roles</option>
+                <option value="admin">Admins Only</option>
+                <option value="user">Standard Users Only</option>
+              </select>
+              <select id="user-status-filter" onchange="renderUserDirectoryTable()" class="bg-slate-950 border border-slate-800 text-slate-300 text-xs rounded-xl px-3 py-2.5">
+                <option value="all">All Statuses</option>
+                <option value="active">Active Only</option>
+                <option value="suspended">Suspended Only</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- User Directory Table -->
+          <div class="overflow-x-auto">
+            <table class="w-full text-left text-xs">
+              <thead class="text-slate-400 border-b border-slate-800 bg-slate-950/40">
+                <tr>
+                  <th class="py-3 px-4 font-semibold">User</th>
+                  <th class="py-3 px-4 font-semibold">Role</th>
+                  <th class="py-3 px-4 font-semibold">Status</th>
+                  <th class="py-3 px-4 font-semibold">Synced Tasks</th>
+                  <th class="py-3 px-4 font-semibold">Integrations</th>
+                  <th class="py-3 px-4 font-semibold">Registered</th>
+                  <th class="py-3 px-4 font-semibold text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody id="user-table-body" class="divide-y divide-slate-800/60">
+                <!-- Populated via JavaScript -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- ================= SECTION 2: CLOUD DATABASE & SYNC ================= -->
+      <div id="section-cloud" class="space-y-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-5">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+            <div>
+              <h2 class="text-base font-bold text-white flex items-center gap-2">
+                <svg class="w-5 h-5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4"/></svg>
+                Google Cloud Firestore Schema & Collection Inspector
+              </h2>
+              <p class="text-xs text-slate-400">Multi-tenant document partition overview for connected client applications</p>
+            </div>
+            <button onclick="triggerAdminCloudSync()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold">
+              Trigger Cloud Backup
+            </button>
+          </div>
+
+          <div class="grid grid-cols-3 gap-4 text-xs">
+            <div class="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+              <span class="text-slate-400">Collection Path</span>
+              <p class="font-mono text-white text-sm">/users/{uid}/tasks</p>
+              <p class="text-slate-500 text-[11px]">Primary task items with recurrence & attachments</p>
+            </div>
+            <div class="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+              <span class="text-slate-400">Collection Path</span>
+              <p class="font-mono text-white text-sm">/users/{uid}/rules</p>
+              <p class="text-slate-500 text-[11px]">Interval & Google Calendar recurrence rules</p>
+            </div>
+            <div class="p-4 bg-slate-950 rounded-xl border border-slate-800 space-y-1">
+              <span class="text-slate-400">Collection Path</span>
+              <p class="font-mono text-white text-sm">/users/{uid}/integrations</p>
+              <p class="text-slate-500 text-[11px]">Personal Google Calendar & Outlook OAuth tokens</p>
+            </div>
+          </div>
+
+          <!-- Real-Time Sync Mutation Event Log -->
+          <div class="space-y-3 pt-2">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400">Live Cloud Mutation Stream</h3>
+            <div id="sync-log-container" class="p-4 bg-slate-950 rounded-xl border border-slate-800 font-mono text-[11px] space-y-1.5 max-h-56 overflow-y-auto">
+              <!-- Logs populated via JS -->
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= SECTION 3: EXTERNAL APIS ================= -->
+      <div id="section-apis" class="space-y-6 hidden">
+        <div class="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-6">
+          <div class="border-b border-slate-800 pb-4">
+            <h2 class="text-base font-bold text-white">External Service Integration Status</h2>
+            <p class="text-xs text-slate-400">Health checks and rate limit metrics for Google Workspace and Microsoft Graph</p>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4 text-xs">
+            <!-- Google Calendar API -->
+            <div class="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                  <span class="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold">G</span>
+                  <div>
+                    <h4 class="font-bold text-white text-sm">Google Calendar API (v3)</h4>
+                    <span class="text-[10px] text-slate-400">Personal Calendar Event Synchronization</span>
+                  </div>
+                </div>
+                <span class="px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-400">99.98% UP</span>
+              </div>
+              <div class="space-y-1 text-slate-400">
+                <div class="flex justify-between"><span>Scopes Authorized:</span><span class="text-slate-200">calendar.events.readonly</span></div>
+                <div class="flex justify-between"><span>API Quota Used:</span><span class="text-slate-200">14% (14,280 / 100,000 req)</span></div>
+                <div class="flex justify-between"><span>Average Latency:</span><span class="text-emerald-400">42ms</span></div>
+              </div>
+            </div>
+
+            <!-- Microsoft Graph API -->
+            <div class="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                  <span class="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold">M</span>
+                  <div>
+                    <h4 class="font-bold text-white text-sm">Microsoft Graph API (v1.0)</h4>
+                    <span class="text-[10px] text-slate-400">Outlook Calendar & Teams Meetings</span>
+                  </div>
+                </div>
+                <span class="px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-400">100.0% UP</span>
+              </div>
+              <div class="space-y-1 text-slate-400">
+                <div class="flex justify-between"><span>Scopes Authorized:</span><span class="text-slate-200">Calendars.Read</span></div>
+                <div class="flex justify-between"><span>API Quota Used:</span><span class="text-slate-200">8% (8,420 / 100,000 req)</span></div>
+                <div class="flex justify-between"><span>Average Latency:</span><span class="text-emerald-400">38ms</span></div>
+              </div>
+            </div>
+
+            <!-- Gmail API -->
+            <div class="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                  <span class="w-8 h-8 rounded-lg bg-red-500/20 text-red-400 flex items-center justify-center font-bold">✉️</span>
+                  <div>
+                    <h4 class="font-bold text-white text-sm">Gmail REST API (v1)</h4>
+                    <span class="text-[10px] text-slate-400">Email Task Inbox Scanning</span>
+                  </div>
+                </div>
+                <span class="px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-400">99.95% UP</span>
+              </div>
+              <div class="space-y-1 text-slate-400">
+                <div class="flex justify-between"><span>Scopes Authorized:</span><span class="text-slate-200">gmail.readonly</span></div>
+                <div class="flex justify-between"><span>Daily Messages Scanned:</span><span class="text-slate-200">1,248 messages</span></div>
+                <div class="flex justify-between"><span>Average Latency:</span><span class="text-emerald-400">55ms</span></div>
+              </div>
+            </div>
+
+            <!-- Gemini AI Task Extractor -->
+            <div class="p-5 bg-slate-950 rounded-xl border border-slate-800 space-y-3">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2.5">
+                  <span class="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center font-bold">✨</span>
+                  <div>
+                    <h4 class="font-bold text-white text-sm">Gemini 1.5 Flash</h4>
+                    <span class="text-[10px] text-slate-400">Intelligent Action Item Extraction</span>
+                  </div>
+                </div>
+                <span class="px-2 py-0.5 rounded font-mono font-bold bg-emerald-500/20 text-emerald-400">READY</span>
+              </div>
+              <div class="space-y-1 text-slate-400">
+                <div class="flex justify-between"><span>Inference Model:</span><span class="text-slate-200">gemini-1.5-flash-latest</span></div>
+                <div class="flex justify-between"><span>Tasks Extracted:</span><span class="text-slate-200">328 suggestions</span></div>
+                <div class="flex justify-between"><span>Extraction Latency:</span><span class="text-emerald-400">210ms</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- Modal: Add User Account -->
+  <div id="modal-add-user" class="fixed inset-0 bg-black/75 backdrop-blur-sm z-50 flex items-center justify-center p-4 hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <h3 class="font-bold text-sm text-white">Add New Enterprise User</h3>
+        <button onclick="closeAddUserModal()" class="text-slate-400 hover:text-white">✕</button>
+      </div>
+
+      <form onsubmit="handleAdminCreateUser(event)" class="space-y-3 text-xs">
+        <div>
+          <label class="block text-slate-400 font-semibold mb-1">Full Name *</label>
+          <input type="text" id="new-user-name" placeholder="e.g. Jordan Lee" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500">
+        </div>
+        <div>
+          <label class="block text-slate-400 font-semibold mb-1">Email Address *</label>
+          <input type="email" id="new-user-email" placeholder="jordan@company.com" required class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white focus:outline-none focus:border-purple-500">
+        </div>
+        <div>
+          <label class="block text-slate-400 font-semibold mb-1">Role Privileges *</label>
+          <select id="new-user-role" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white">
+            <option value="user" selected>Standard User (Client App Access)</option>
+            <option value="admin">System Administrator (Web Admin Access)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-slate-400 font-semibold mb-1">Temporary Password</label>
+          <input type="password" id="new-user-password" value="tempPassword123" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-white font-mono">
+        </div>
+        <div class="pt-3 flex items-center justify-end gap-2 border-t border-slate-800">
+          <button type="button" onclick="closeAddUserModal()" class="px-4 py-2 rounded-xl bg-slate-800 text-slate-300">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-500 font-bold text-white shadow">Create User</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Toast Notification -->
+  <div id="toast" class="fixed top-6 right-6 z-50 bg-slate-900 border border-purple-500/40 text-white text-xs px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 transform translate-y-[-100px] opacity-0 transition-all duration-300 pointer-events-none">
+    <span id="toast-icon" class="text-purple-400">✓</span>
+    <span id="toast-msg">Action performed</span>
+  </div>
+
+  <!-- Logic & Data Store -->
+  <script>
+    const adminData = {
+      users: [
+        { id: 'usr_1', name: 'Alex Morgan', email: 'admin@tasker.io', role: 'admin', isActive: true, taskCount: 8, createdAt: 'Nov 1, 2026', google: true, outlook: false },
+        { id: 'usr_2', name: 'Sarah Chen', email: 'sarah.chen@university.edu', role: 'user', isActive: true, taskCount: 5, createdAt: 'Nov 4, 2026', google: true, outlook: true },
+        { id: 'usr_3', name: 'Marcus Vance', email: 'marcus.vance@acme-corp.com', role: 'user', isActive: true, taskCount: 6, createdAt: 'Nov 8, 2026', google: false, outlook: true },
+        { id: 'usr_4', name: 'Taylor Swift', email: 'taylor.s@acme-corp.com', role: 'user', isActive: false, taskCount: 2, createdAt: 'Nov 9, 2026', google: false, outlook: false }
+      ],
+      syncLogs: [
+        { time: '17:20:12', action: 'SNAPSHOT', text: 'Partition snapshot verified: 4 user documents loaded.' },
+        { time: '17:21:40', action: 'MUTATION', text: 'User sarah.chen: +1 task "Physics problem set" pushed to cloud.' },
+        { time: '17:22:05', action: 'CALENDAR', text: 'Google Calendar sync completed for user alex.morgan (2 events).' },
+        { time: '17:23:18', action: 'GMAIL_AI', text: 'Gmail inbox scan extracted 3 actionable task candidates.' },
+      ]
+    };
+
+    function showToast(msg, icon = '✓') {
+      const toast = document.getElementById('toast');
+      document.getElementById('toast-msg').innerText = msg;
+      document.getElementById('toast-icon').innerText = icon;
+      toast.classList.remove('translate-y-[-100px]', 'opacity-0');
+      setTimeout(() => {
+        toast.classList.add('translate-y-[-100px]', 'opacity-0');
+      }, 2800);
+    }
+
+    function switchAdminSection(sec) {
+      ['users', 'cloud', 'apis'].forEach(s => {
+        document.getElementById(`section-${s}`).classList.toggle('hidden', s !== sec);
+        const navBtn = document.getElementById(`nav-${s}`);
+        if (navBtn) {
+          if (s === sec) {
+            navBtn.className = 'w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium transition bg-purple-600 text-white shadow-lg shadow-purple-600/20';
+          } else {
+            navBtn.className = 'w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition';
+          }
+        }
+      });
+    }
+
+    function renderUserDirectoryTable() {
+      const query = (document.getElementById('user-search-input')?.value || '').toLowerCase();
+      const roleFilter = document.getElementById('user-role-filter')?.value || 'all';
+      const statusFilter = document.getElementById('user-status-filter')?.value || 'all';
+
+      const filtered = adminData.users.filter(u => {
+        const matchesQuery = u.name.toLowerCase().includes(query) || u.email.toLowerCase().includes(query);
+        const matchesRole = roleFilter === 'all' || u.role === roleFilter;
+        const matchesStatus = statusFilter === 'all' || (statusFilter === 'active' ? u.isActive : !u.isActive);
+        return matchesQuery && matchesRole && matchesStatus;
+      });
+
+      // Update counters
+      document.getElementById('kpi-users-total').innerText = adminData.users.length;
+      document.getElementById('kpi-users-active').innerText = adminData.users.filter(u => u.isActive).length;
+      document.getElementById('kpi-users-admins').innerText = adminData.users.filter(u => u.role === 'admin').length;
+      document.getElementById('badge-total-users').innerText = adminData.users.length;
+
+      const tbody = document.getElementById('user-table-body');
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="7" class="py-8 text-center text-slate-500">No users found matching query or filters.</td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = filtered.map(u => {
+        const isAdmin = u.role === 'admin';
+        return `
+          <tr class="hover:bg-slate-900/60 transition">
+            <td class="py-3.5 px-4">
+              <div class="flex items-center gap-3">
+                <div class="w-8 h-8 rounded-full ${isAdmin ? 'bg-purple-600' : 'bg-blue-600'} text-white font-bold flex items-center justify-center text-xs">
+                  ${u.name.split(' ').map(p => p[0]).join('')}
+                </div>
+                <div>
+                  <p class="font-bold text-white text-xs">${u.name}</p>
+                  <p class="text-[11px] text-slate-400 font-mono">${u.email}</p>
+                </div>
+              </div>
+            </td>
+            <td class="py-3.5 px-4">
+              <span class="px-2 py-0.5 rounded font-mono text-[10px] font-bold ${isAdmin ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30' : 'bg-blue-500/10 text-blue-300 border border-blue-500/20'}">
+                ${isAdmin ? 'ADMIN' : 'USER'}
+              </span>
+            </td>
+            <td class="py-3.5 px-4">
+              <span class="px-2 py-0.5 rounded font-mono text-[10px] font-bold ${u.isActive ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'}">
+                ${u.isActive ? 'ACTIVE' : 'SUSPENDED'}
+              </span>
+            </td>
+            <td class="py-3.5 px-4 font-mono text-slate-300">
+              ${u.taskCount} tasks
+            </td>
+            <td class="py-3.5 px-4">
+              <div class="flex items-center gap-1.5">
+                <span title="Google Calendar & Gmail" class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold ${u.google ? 'bg-blue-500/20 text-blue-400' : 'bg-slate-900 text-slate-600'}">G</span>
+                <span title="Microsoft 365 Outlook" class="w-5 h-5 rounded flex items-center justify-center text-[10px] font-bold ${u.outlook ? 'bg-cyan-500/20 text-cyan-400' : 'bg-slate-900 text-slate-600'}">M</span>
+              </div>
+            </td>
+            <td class="py-3.5 px-4 text-slate-400 text-[11px]">
+              ${u.createdAt}
+            </td>
+            <td class="py-3.5 px-4 text-right">
+              <div class="flex items-center justify-end gap-1.5">
+                <button onclick="toggleUserRole('${u.id}')" title="${isAdmin ? 'Demote to User' : 'Promote to Admin'}" class="px-2 py-1 rounded-lg border border-slate-800 text-[11px] font-semibold hover:border-purple-500 hover:text-white transition">
+                  ${isAdmin ? 'Demote' : 'Make Admin'}
+                </button>
+                <button onclick="toggleUserStatus('${u.id}')" class="px-2 py-1 rounded-lg border border-slate-800 text-[11px] font-semibold ${u.isActive ? 'hover:border-amber-500 text-amber-400' : 'hover:border-emerald-500 text-emerald-400'} transition">
+                  ${u.isActive ? 'Suspend' : 'Activate'}
+                </button>
+                <button onclick="deleteUser('${u.id}')" title="Delete User" class="p-1 rounded-lg text-slate-500 hover:text-rose-400 hover:bg-rose-500/10 transition">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function toggleUserRole(id) {
+      const u = adminData.users.find(x => x.id === id);
+      if (!u) return;
+      u.role = u.role === 'admin' ? 'user' : 'admin';
+      showToast(`${u.name} role changed to ${u.role.toUpperCase()}`, '🛡️');
+      renderUserDirectoryTable();
+    }
+
+    function toggleUserStatus(id) {
+      const u = adminData.users.find(x => x.id === id);
+      if (!u) return;
+      u.isActive = !u.isActive;
+      showToast(`${u.name} is now ${u.isActive ? 'ACTIVE' : 'SUSPENDED'}`, u.isActive ? '✓' : '⚠️');
+      renderUserDirectoryTable();
+    }
+
+    function deleteUser(id) {
+      const u = adminData.users.find(x => x.id === id);
+      if (!u) return;
+      if (!confirm(`Delete user account "${u.name}" (${u.email})? This removes all cloud collections.`)) return;
+      adminData.users = adminData.users.filter(x => x.id !== id);
+      showToast(`User ${u.name} deleted`, '🗑️');
+      renderUserDirectoryTable();
+    }
+
+    function triggerAdminCloudSync() {
+      const dot = document.getElementById('cloud-status-dot');
+      const text = document.getElementById('cloud-status-text');
+      const icon = document.getElementById('sync-icon');
+
+      if (dot) dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-spin';
+      if (text) text.innerText = 'Syncing Firestore delta...';
+      if (icon) icon.classList.add('animate-spin');
+
+      showToast('Pushing updates to Google Cloud Firestore...', '☁️');
+
+      setTimeout(() => {
+        if (dot) dot.className = 'w-2 h-2 rounded-full bg-emerald-400 animate-pulse';
+        if (text) text.innerText = 'Firestore Connected (18ms)';
+        if (icon) icon.classList.remove('animate-spin');
+
+        const now = new Date().toLocaleTimeString();
+        adminData.syncLogs.unshift({
+          time: now,
+          action: '2WAY_SYNC',
+          text: 'Two-way sync complete: 0 schema conflicts detected.'
+        });
+        renderSyncLogs();
+        showToast('Firestore two-way cloud sync successful!', '✓');
+      }, 750);
+    }
+
+    function renderSyncLogs() {
+      const container = document.getElementById('sync-log-container');
+      if (!container) return;
+      container.innerHTML = adminData.syncLogs.map(l => `
+        <div class="flex items-center gap-2">
+          <span class="text-slate-500">[${l.time}]</span>
+          <span class="text-purple-400 font-bold">${l.action}</span>
+          <span class="text-slate-300">${l.text}</span>
+        </div>
+      `).join('');
+    }
+
+    function openAddUserModal() {
+      document.getElementById('modal-add-user').classList.remove('hidden');
+    }
+
+    function closeAddUserModal() {
+      document.getElementById('modal-add-user').classList.add('hidden');
+    }
+
+    function handleAdminCreateUser(e) {
+      e.preventDefault();
+      const name = document.getElementById('new-user-name').value.trim();
+      const email = document.getElementById('new-user-email').value.trim();
+      const role = document.getElementById('new-user-role').value;
+
+      adminData.users.push({
+        id: 'usr_' + Date.now(),
+        name,
+        email,
+        role,
+        isActive: true,
+        taskCount: 0,
+        createdAt: 'Just now',
+        google: false,
+        outlook: false,
+      });
+
+      closeAddUserModal();
+      showToast(`Created enterprise user: ${name} (${role.toUpperCase()})`, '✨');
+      renderUserDirectoryTable();
+    }
+
+    // Initialize
+    renderUserDirectoryTable();
+    renderSyncLogs();
+  </script>
+</body>
+</html>

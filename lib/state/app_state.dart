@@ -542,6 +542,16 @@ class IdeasNotifier extends Notifier<List<ExtractedTaskSuggestion>> {
     ];
   }
 
+  void addSuggestion(ExtractedTaskSuggestion suggestion) {
+    if (!state.any((s) => s.title == suggestion.title)) {
+      state = [...state, suggestion];
+    }
+  }
+
+  void setSuggestions(List<ExtractedTaskSuggestion> suggestions) {
+    state = suggestions;
+  }
+
   void removeSuggestion(ExtractedTaskSuggestion suggestion) {
     state = state.where((s) => s != suggestion).toList();
   }

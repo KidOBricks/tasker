@@ -225,35 +225,44 @@ class _AdminConsoleScreenState extends ConsumerState<AdminConsoleScreen> {
           const SizedBox(height: 24),
 
           // Search & Filter Header
-          Row(
+          Wrap(
+            spacing: 12,
+            runSpacing: 10,
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               const Text('Registered Users Directory', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const Spacer(),
-              // Search Input
-              SizedBox(
-                width: 220,
-                child: TextField(
-                  decoration: InputDecoration(
-                    hintText: 'Search user...',
-                    prefixIcon: const Icon(Icons.search, size: 18),
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  // Search Input
+                  SizedBox(
+                    width: 180,
+                    child: TextField(
+                      decoration: InputDecoration(
+                        hintText: 'Search user...',
+                        prefixIcon: const Icon(Icons.search, size: 16),
+                        isDense: true,
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      onChanged: (val) => setState(() => _searchQuery = val),
+                    ),
                   ),
-                  onChanged: (val) => setState(() => _searchQuery = val),
-                ),
-              ),
-              const SizedBox(width: 10),
-              // Role Filter Dropdown
-              DropdownButton<String>(
-                value: _selectedRoleFilter,
-                dropdownColor: AppColors.surface,
-                items: const [
-                  DropdownMenuItem(value: 'all', child: Text('All Roles')),
-                  DropdownMenuItem(value: 'admin', child: Text('Admins Only')),
-                  DropdownMenuItem(value: 'user', child: Text('Users Only')),
+                  // Role Filter Dropdown
+                  DropdownButton<String>(
+                    value: _selectedRoleFilter,
+                    dropdownColor: AppColors.surface,
+                    items: const [
+                      DropdownMenuItem(value: 'all', child: Text('All Roles')),
+                      DropdownMenuItem(value: 'admin', child: Text('Admins')),
+                      DropdownMenuItem(value: 'user', child: Text('Users')),
+                    ],
+                    onChanged: (val) => setState(() => _selectedRoleFilter = val ?? 'all'),
+                  ),
                 ],
-                onChanged: (val) => setState(() => _selectedRoleFilter = val ?? 'all'),
               ),
             ],
           ),
@@ -429,21 +438,29 @@ class _AdminConsoleScreenState extends ConsumerState<AdminConsoleScreen> {
     return Expanded(
       child: Card(
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(title, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w500)),
-                  Icon(icon, size: 16, color: color),
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: const TextStyle(fontSize: 11, color: AppColors.textSecondary, fontWeight: FontWeight.w500),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(icon, size: 15, color: color),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 6),
               Text(
                 value,
-                style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color),
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color),
               ),
             ],
           ),

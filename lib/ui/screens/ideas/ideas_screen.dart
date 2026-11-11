@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import '../../../state/app_state.dart';
 import '../../../services/gemini_service.dart';
+import '../../../state/app_state.dart';
+import '../../../state/integration_state.dart';
 import '../../theme/app_theme.dart';
 import '../home/widgets/add_edit_task_dialog.dart';
 
@@ -60,154 +61,279 @@ class IdeasScreen extends ConsumerWidget {
     );
   }
 
+  void _showConnectGmailDialog(BuildContext context, WidgetRef ref) {
+    final emailController = TextEditingController(text: 'user@gmail.com');
+    final tokenController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: const Row(
+          children: [
+            Icon(Icons.mark_email_read, color: Colors.redAccent, size: 24),
+            SizedBox(width: 10),
+            Text('Connect Gmail for Inbox AI'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Authorize Tasker to scan incoming unread emails for actionable tasks, deadlines, and commitments.',
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: emailController,
+              decoration: const InputDecoration(
+                labelText: 'Google / Gmail Address',
+                prefixIcon: Icon(Icons.email_outlined, size: 18),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: tokenController,
+              decoration: const InputDecoration(
+                labelText: 'OAuth 2.0 Bearer Token (Optional)',
+                hintText: 'Leave empty for simulated cloud connection',
+                prefixIcon: Icon(Icons.key_outlined, size: 18),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
+            onPressed: () async {
+              final email = emailController.text.trim();
+              final token = tokenController.text.trim().isNotEmpty ? tokenController.text.trim() : null;
+              if (email.isNotEmpty) {
+                final nav = Navigator.of(ctx);
+                final messenger = ScaffoldMessenger.of(context);
+                await ref.read(connectedAccountsProvider.notifier).connectGoogle(email: email, accessToken: token);
+                if (ctx.mounted) nav.pop();
+                messenger.showSnackBar(
+                  SnackBar(content: Text('Connected Gmail account: $email! Scanning inbox...')),
+                );
+                if (context.mounted) {
+                  _scanInbox(context, ref);
+                }
+              }
+            },
+            child: const Text('Connect Gmail'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _scanInbox(BuildContext context, WidgetRef ref) async {
+    final emailService = ref.read(emailIntegrationServiceProvider);
+    final emails = await emailService.fetchRecentEmails();
+    final suggestions = emailService.extractTaskSuggestions(emails);
+
+    for (final s in suggestions) {
+      ref.read(ideasProvider.notifier).addSuggestion(s);
+    }
+
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Scanned Gmail inbox: found ${suggestions.length} actionable items!'),
+          backgroundColor: AppColors.inProgress,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final suggestions = ref.watch(ideasProvider);
+    final accounts = ref.watch(connectedAccountsProvider);
+    final isGmailConnected = accounts.isGmailConnected || accounts.google != null;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Ideas & Email Inbox AI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 14),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.mark_email_read, size: 14, color: AppColors.primary),
-                SizedBox(width: 6),
-                Text('Gmail AI Active', style: TextStyle(fontSize: 11, color: AppColors.primary)),
-              ],
-            ),
+          IconButton(
+            tooltip: 'Scan Gmail Inbox',
+            icon: const Icon(Icons.refresh, color: AppColors.primary),
+            onPressed: () => _scanInbox(context, ref),
           ),
+          const SizedBox(width: 8),
         ],
       ),
-      body: suggestions.isEmpty
-          ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.inbox, size: 48, color: AppColors.textMuted.withValues(alpha: 0.5)),
-                  const SizedBox(height: 12),
-                  const Text('All email task suggestions have been reviewed!', style: TextStyle(color: AppColors.textMuted)),
-                ],
-              ),
-            )
-          : ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: suggestions.length,
-              itemBuilder: (context, i) {
-                final s = suggestions[i];
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 14),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          // Gmail Connection Status Header
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: [
+                    Icon(
+                      Icons.mark_email_read,
+                      color: isGmailConnected ? Colors.redAccent : AppColors.textMuted,
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // Source Email Reference
-                        Row(
-                          children: [
-                            const Icon(Icons.mail_outline, size: 14, color: AppColors.primary),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                'From: ${s.emailSender}',
-                                style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: (s.importance >= 3 ? AppColors.level3 : AppColors.level2).withValues(alpha: 0.2),
-                                borderRadius: BorderRadius.circular(5),
-                              ),
-                              child: Text(
-                                'Level ${s.importance}',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                  color: s.importance >= 3 ? AppColors.level3 : AppColors.level2,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-
-                        // Suggested Task Title
                         Text(
-                          s.title,
-                          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                          isGmailConnected
+                              ? 'Gmail Inbox AI Active (${accounts.google?.email ?? "Connected"})'
+                              : 'Gmail Inbox AI Disconnected',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary),
                         ),
-                        const SizedBox(height: 6),
-
-                        // Source Email Snippet
-                        Container(
-                          padding: const EdgeInsets.all(10),
-                          decoration: BoxDecoration(
-                            color: AppColors.background,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: AppColors.border),
-                          ),
-                          child: Text(
-                            '"${s.emailSnippet}"',
-                            style: const TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: AppColors.textSecondary),
-                          ),
-                        ),
-                        const SizedBox(height: 10),
-
-                        // Suggested Due Date
-                        if (s.suggestedDueDate != null)
-                          Row(
-                            children: [
-                              const Icon(Icons.schedule, size: 13, color: AppColors.level2),
-                              const SizedBox(width: 4),
-                              Text(
-                                'Suggested Deadline: ${DateFormat('EEE, MMM d, yyyy').format(s.suggestedDueDate!)}',
-                                style: const TextStyle(fontSize: 12, color: AppColors.level2, fontWeight: FontWeight.w500),
-                              ),
-                            ],
-                          ),
-                        const SizedBox(height: 14),
-
-                        // Action Buttons: Dismiss, Edit Details, Accept
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.end,
-                          children: [
-                            TextButton(
-                              onPressed: () => ref.read(ideasProvider.notifier).removeSuggestion(s),
-                              child: const Text('Dismiss', style: TextStyle(color: AppColors.textMuted)),
-                            ),
-                            const SizedBox(width: 8),
-                            OutlinedButton(
-                              onPressed: () => _editAndAccept(context, ref, s),
-                              child: const Text('Edit Details'),
-                            ),
-                            const SizedBox(width: 8),
-                            ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: AppColors.primary,
-                                foregroundColor: Colors.white,
-                              ),
-                              icon: const Icon(Icons.check, size: 16),
-                              label: const Text('Accept & Add'),
-                              onPressed: () => _acceptSuggestion(context, ref, s),
-                            ),
-                          ],
+                        Text(
+                          isGmailConnected ? 'Auto-extracting deadlines from incoming messages' : 'Connect account to parse incoming emails for tasks',
+                          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
                         ),
                       ],
                     ),
+                  ],
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: isGmailConnected ? AppColors.surface : Colors.redAccent,
+                    foregroundColor: isGmailConnected ? AppColors.textSecondary : Colors.white,
+                    side: isGmailConnected ? const BorderSide(color: AppColors.border) : null,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                   ),
-                );
-              },
+                  onPressed: isGmailConnected ? () => _scanInbox(context, ref) : () => _showConnectGmailDialog(context, ref),
+                  child: Text(isGmailConnected ? 'Scan Inbox' : 'Connect Gmail'),
+                ),
+              ],
             ),
+          ),
+          const SizedBox(height: 20),
+
+          // Suggestions list
+          if (suggestions.isEmpty)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 60),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(Icons.inbox, size: 48, color: AppColors.textMuted.withValues(alpha: 0.5)),
+                    const SizedBox(height: 12),
+                    const Text('All email task suggestions have been reviewed!', style: TextStyle(color: AppColors.textMuted)),
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      icon: const Icon(Icons.refresh, size: 16),
+                      label: const Text('Scan Inbox for New Tasks'),
+                      onPressed: () => _scanInbox(context, ref),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else ...[
+            const Text('Actionable Tasks Detected in Email', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+            const SizedBox(height: 12),
+            ...suggestions.map((suggestion) {
+              return Card(
+                margin: const EdgeInsets.only(bottom: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  side: BorderSide(color: AppColors.border.withValues(alpha: 0.6)),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: AppColors.primary.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              'Level ${suggestion.importance} (Priority)',
+                              style: const TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          if (suggestion.suggestedDueDate != null)
+                            Row(
+                              children: [
+                                const Icon(Icons.access_time, size: 13, color: AppColors.level2),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'Due ${DateFormat('MMM d, h:mm a').format(suggestion.suggestedDueDate!)}',
+                                  style: const TextStyle(fontSize: 11, color: AppColors.level2, fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        suggestion.title,
+                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        suggestion.description,
+                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                      ),
+                      const SizedBox(height: 14),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          TextButton(
+                            onPressed: () => ref.read(ideasProvider.notifier).removeSuggestion(suggestion),
+                            child: const Text('Dismiss', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                          ),
+                          const SizedBox(width: 8),
+                          OutlinedButton(
+                            onPressed: () => _editAndAccept(context, ref, suggestion),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.textPrimary,
+                              side: const BorderSide(color: AppColors.border),
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            child: const Text('Edit Details', style: TextStyle(fontSize: 12)),
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton.icon(
+                            icon: const Icon(Icons.check, size: 16),
+                            label: const Text('Accept & Add', style: TextStyle(fontSize: 12)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppColors.primary,
+                              foregroundColor: Colors.white,
+                              visualDensity: VisualDensity.compact,
+                            ),
+                            onPressed: () => _acceptSuggestion(context, ref, suggestion),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ],
+        ],
+      ),
     );
   }
 }

@@ -1,28 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import '../../../data/services/calendar_integration_service.dart';
 import '../../../state/app_state.dart';
+import '../../../state/integration_state.dart';
 import '../../theme/app_theme.dart';
-
-class CalendarEventMock {
-  final String id;
-  final String title;
-  final String source; // 'google' or 'outlook'
-  final DateTime startTime;
-  final DateTime endTime;
-  final String location;
-  final bool hasLinkedTask;
-
-  const CalendarEventMock({
-    required this.id,
-    required this.title,
-    required this.source,
-    required this.startTime,
-    required this.endTime,
-    required this.location,
-    this.hasLinkedTask = false,
-  });
-}
 
 class CalendarScreen extends ConsumerStatefulWidget {
   const CalendarScreen({super.key});
@@ -32,45 +14,91 @@ class CalendarScreen extends ConsumerStatefulWidget {
 }
 
 class _CalendarScreenState extends ConsumerState<CalendarScreen> {
-  late List<CalendarEventMock> _events;
+  void _showConnectDialog(BuildContext context, String provider) {
+    final emailController = TextEditingController(
+      text: provider == 'google' ? 'user@gmail.com' : 'user@outlook.com',
+    );
+    final tokenController = TextEditingController();
 
-  @override
-  void initState() {
-    super.initState();
-    final now = DateTime.now();
-    _events = [
-      CalendarEventMock(
-        id: 'ev_1',
-        title: 'Sprint Planning & Architecture Review',
-        source: 'google',
-        startTime: DateTime(now.year, now.month, now.day, 14, 0),
-        endTime: DateTime(now.year, now.month, now.day, 15, 30),
-        location: 'Google Meet',
-        hasLinkedTask: false,
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.surface,
+        title: Row(
+          children: [
+            Icon(
+              provider == 'google' ? Icons.calendar_month : Icons.calendar_today,
+              color: provider == 'google' ? Colors.blue : Colors.cyan,
+              size: 24,
+            ),
+            const SizedBox(width: 10),
+            Text(provider == 'google' ? 'Connect Google Calendar' : 'Connect Outlook Calendar'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Link your personal ${provider == "google" ? "Google Calendar" : "Microsoft Outlook"} to sync upcoming meetings and automatically generate preparation tasks.',
+              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: emailController,
+              decoration: InputDecoration(
+                labelText: 'Account Email',
+                hintText: provider == 'google' ? 'you@gmail.com' : 'you@outlook.com',
+                prefixIcon: const Icon(Icons.email_outlined, size: 18),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: tokenController,
+              decoration: const InputDecoration(
+                labelText: 'OAuth 2.0 Bearer Token (Optional)',
+                hintText: 'Leave empty for simulated cloud connection',
+                prefixIcon: Icon(Icons.key_outlined, size: 18),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: provider == 'google' ? Colors.blue : Colors.cyan,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () {
+              final email = emailController.text.trim();
+              final token = tokenController.text.trim().isNotEmpty ? tokenController.text.trim() : null;
+              if (email.isNotEmpty) {
+                if (provider == 'google') {
+                  ref.read(connectedAccountsProvider.notifier).connectGoogle(email: email, accessToken: token);
+                } else {
+                  ref.read(connectedAccountsProvider.notifier).connectOutlook(email: email, accessToken: token);
+                }
+                Navigator.of(ctx).pop();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text('Connected ${provider == "google" ? "Google" : "Outlook"} account: $email!'),
+                    backgroundColor: AppColors.inProgress,
+                  ),
+                );
+              }
+            },
+            child: const Text('Connect Account'),
+          ),
+        ],
       ),
-      CalendarEventMock(
-        id: 'ev_2',
-        title: 'Executive Client Demo & Q&A',
-        source: 'outlook',
-        startTime: DateTime(now.year, now.month, now.day + 1, 10, 0),
-        endTime: DateTime(now.year, now.month, now.day + 1, 11, 0),
-        location: 'Microsoft Teams',
-        hasLinkedTask: false,
-      ),
-      CalendarEventMock(
-        id: 'ev_3',
-        title: 'Dentist Checkup & Teeth Cleaning',
-        source: 'google',
-        startTime: DateTime(now.year, now.month, now.day + 2, 16, 30),
-        endTime: DateTime(now.year, now.month, now.day + 2, 17, 30),
-        location: 'Downtown Dental Clinic',
-        hasLinkedTask: false,
-      ),
-    ];
+    );
   }
 
-  void _showEventPrepSheet(CalendarEventMock event) {
-    // Smart suggested prep deadline: 2 hours before the meeting
+  void _showEventPrepSheet(ExternalCalendarEvent event) {
     final suggestedPrepDue = event.startTime.subtract(const Duration(hours: 2));
 
     showModalBottomSheet(
@@ -113,6 +141,13 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               'Location: ${event.location}',
               style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
             ),
+            if (event.meetingUrl != null) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Meeting link: ${event.meetingUrl}',
+                style: const TextStyle(fontSize: 11, color: Colors.blueAccent),
+              ),
+            ],
             const SizedBox(height: 20),
 
             // Prep Task Suggestion Card
@@ -163,11 +198,12 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   onPressed: () {
                     ref.read(tasksProvider.notifier).addTask(
                           title: 'Prep: ${event.title}',
-                          description: 'Action items for ${event.title} at ${event.location}.',
+                          description: 'Action items for ${event.title} (${event.location}).\nLink: ${event.meetingUrl ?? "N/A"}',
                           categoryId: 'work',
                           baseImportance: 3,
                           dueDate: suggestedPrepDue,
                         );
+                    ref.read(externalEventsProvider.notifier).markEventLinked(event.id);
                     Navigator.of(ctx).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('Created preparation task for "${event.title}"!')),
@@ -184,135 +220,277 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final unlinkedEvents = _events.where((e) => !e.hasLinkedTask).toList();
+    final accounts = ref.watch(connectedAccountsProvider);
+    final eventsAsync = ref.watch(externalEventsProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Calendar & Integrations', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         actions: [
-          Container(
-            margin: const EdgeInsets.only(right: 14),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.sync, size: 14, color: AppColors.inProgress),
-                SizedBox(width: 6),
-                Text('Google & Outlook Synced', style: TextStyle(fontSize: 11, color: AppColors.inProgress)),
-              ],
-            ),
+          IconButton(
+            tooltip: 'Sync Calendars Now',
+            icon: const Icon(Icons.sync, color: AppColors.primary),
+            onPressed: () {
+              ref.read(externalEventsProvider.notifier).refreshEvents();
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(content: Text('Refreshing Google Calendar & Outlook events...'), duration: Duration(seconds: 1)),
+              );
+            },
           ),
+          const SizedBox(width: 8),
         ],
       ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
-          // Proactive Suggestion Carousel Feed (Decision from /grill-me)
-          if (unlinkedEvents.isNotEmpty) ...[
-            const Row(
+          // Account Integrations Bar
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: AppColors.surface,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Icon(Icons.auto_awesome, size: 16, color: AppColors.level2),
-                SizedBox(width: 8),
-                Text(
-                  'Upcoming Events Missing Action Items',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                const Row(
+                  children: [
+                    Icon(Icons.link, size: 16, color: AppColors.primary),
+                    SizedBox(width: 8),
+                    Text(
+                      'Connected Personal Calendar Accounts',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  children: [
+                    // Google Calendar Chip
+                    ActionChip(
+                      avatar: Icon(
+                        Icons.calendar_month,
+                        color: accounts.google != null ? Colors.blue : AppColors.textMuted,
+                        size: 16,
+                      ),
+                      label: Text(
+                        accounts.google != null ? 'Google (${accounts.google!.email})' : '+ Connect Google Calendar',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: accounts.google != null ? Colors.white : AppColors.textSecondary,
+                          fontWeight: accounts.google != null ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                      backgroundColor: accounts.google != null ? Colors.blue.withValues(alpha: 0.15) : AppColors.background,
+                      side: BorderSide(color: accounts.google != null ? Colors.blue.withValues(alpha: 0.5) : AppColors.border),
+                      onPressed: () {
+                        if (accounts.google != null) {
+                          _confirmDisconnect(context, 'google', accounts.google!.email);
+                        } else {
+                          _showConnectDialog(context, 'google');
+                        }
+                      },
+                    ),
+
+                    // Outlook Calendar Chip
+                    ActionChip(
+                      avatar: Icon(
+                        Icons.calendar_today,
+                        color: accounts.outlook != null ? Colors.cyan : AppColors.textMuted,
+                        size: 16,
+                      ),
+                      label: Text(
+                        accounts.outlook != null ? 'Outlook (${accounts.outlook!.email})' : '+ Connect Outlook Calendar',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: accounts.outlook != null ? Colors.white : AppColors.textSecondary,
+                          fontWeight: accounts.outlook != null ? FontWeight.bold : FontWeight.normal,
+                        ),
+                      ),
+                      backgroundColor: accounts.outlook != null ? Colors.cyan.withValues(alpha: 0.15) : AppColors.background,
+                      side: BorderSide(color: accounts.outlook != null ? Colors.cyan.withValues(alpha: 0.5) : AppColors.border),
+                      onPressed: () {
+                        if (accounts.outlook != null) {
+                          _confirmDisconnect(context, 'microsoft', accounts.outlook!.email);
+                        } else {
+                          _showConnectDialog(context, 'microsoft');
+                        }
+                      },
+                    ),
+                  ],
                 ),
               ],
             ),
-            const SizedBox(height: 10),
-            SizedBox(
-              height: 130,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: unlinkedEvents.length,
-                separatorBuilder: (_, _) => const SizedBox(width: 12),
-                itemBuilder: (context, i) {
-                  final ev = unlinkedEvents[i];
-                  return Container(
-                    width: 280,
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: AppColors.surface,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          ),
+          const SizedBox(height: 20),
+
+          // Events rendering
+          eventsAsync.when(
+            loading: () => const Center(
+              child: Padding(
+                padding: EdgeInsets.all(40),
+                child: CircularProgressIndicator(),
+              ),
+            ),
+            error: (err, _) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(30),
+                child: Text('Error loading events: $err', style: const TextStyle(color: AppColors.overdue)),
+              ),
+            ),
+            data: (events) {
+              final unlinkedEvents = events.where((e) => !e.hasLinkedTask).toList();
+
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Proactive Suggestion Carousel Feed
+                  if (unlinkedEvents.isNotEmpty) ...[
+                    const Row(
                       children: [
-                        Row(
-                          children: [
-                            Icon(
-                              ev.source == 'google' ? Icons.calendar_month : Icons.calendar_today,
-                              size: 14,
-                              color: ev.source == 'google' ? Colors.blue : Colors.cyan,
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                ev.title,
-                                style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
+                        Icon(Icons.auto_awesome, size: 16, color: AppColors.level2),
+                        SizedBox(width: 8),
                         Text(
-                          DateFormat('EEE, MMM d  •  h:mm a').format(ev.startTime),
-                          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                        ),
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton.icon(
-                            style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
-                            icon: const Icon(Icons.add, size: 14),
-                            label: const Text('Add Prep Task', style: TextStyle(fontSize: 11)),
-                            onPressed: () => _showEventPrepSheet(ev),
-                          ),
+                          'Upcoming Events Missing Action Items',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                         ),
                       ],
                     ),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 24),
-          ],
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      height: 130,
+                      child: ListView.separated(
+                        scrollDirection: Axis.horizontal,
+                        itemCount: unlinkedEvents.length,
+                        separatorBuilder: (_, _) => const SizedBox(width: 12),
+                        itemBuilder: (context, i) {
+                          final ev = unlinkedEvents[i];
+                          return Container(
+                            width: 280,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.surface,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(
+                                      ev.source == 'google' ? Icons.calendar_month : Icons.calendar_today,
+                                      size: 14,
+                                      color: ev.source == 'google' ? Colors.blue : Colors.cyan,
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Expanded(
+                                      child: Text(
+                                        ev.title,
+                                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                Text(
+                                  DateFormat('EEE, MMM d  •  h:mm a').format(ev.startTime),
+                                  style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                                ),
+                                Align(
+                                  alignment: Alignment.centerRight,
+                                  child: TextButton.icon(
+                                    style: TextButton.styleFrom(visualDensity: VisualDensity.compact),
+                                    icon: const Icon(Icons.add, size: 14),
+                                    label: const Text('Add Prep Task', style: TextStyle(fontSize: 11)),
+                                    onPressed: () => _showEventPrepSheet(ev),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                  ],
 
-          // Interactive Agenda Feed
-          const Text('Agenda Feed', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 10),
+                  // Interactive Agenda Feed
+                  const Text('Agenda Feed', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+                  const SizedBox(height: 10),
 
-          ..._events.map((ev) {
-            return Card(
-              margin: const EdgeInsets.only(bottom: 10),
-              child: ListTile(
-                onTap: () => _showEventPrepSheet(ev),
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: ev.source == 'google' ? Colors.blue.withValues(alpha: 0.15) : Colors.cyan.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Icon(
-                    ev.source == 'google' ? Icons.calendar_month : Icons.calendar_today,
-                    color: ev.source == 'google' ? Colors.blue : Colors.cyan,
-                  ),
-                ),
-                title: Text(ev.title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                subtitle: Text(
-                  '${DateFormat('EEE, MMM d • h:mm a').format(ev.startTime)}  (${ev.location})',
-                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                ),
-                trailing: const Icon(Icons.chevron_right, size: 20, color: AppColors.textMuted),
-              ),
-            );
-          }),
+                  if (events.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 30),
+                      child: Center(child: Text('No upcoming events found.', style: TextStyle(color: AppColors.textMuted))),
+                    )
+                  else
+                    ...events.map((ev) {
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 10),
+                        child: ListTile(
+                          onTap: () => _showEventPrepSheet(ev),
+                          leading: Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: ev.source == 'google' ? Colors.blue.withValues(alpha: 0.15) : Colors.cyan.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Icon(
+                              ev.source == 'google' ? Icons.calendar_month : Icons.calendar_today,
+                              color: ev.source == 'google' ? Colors.blue : Colors.cyan,
+                            ),
+                          ),
+                          title: Text(ev.title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
+                          subtitle: Text(
+                            '${DateFormat('EEE, MMM d • h:mm a').format(ev.startTime)}  (${ev.location})',
+                            style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                          ),
+                          trailing: ev.hasLinkedTask
+                              ? const Chip(
+                                  label: Text('Prep Added', style: TextStyle(fontSize: 10, color: Colors.green)),
+                                  visualDensity: VisualDensity.compact,
+                                  backgroundColor: Colors.transparent,
+                                  side: BorderSide(color: Colors.green),
+                                )
+                              : const Icon(Icons.chevron_right, size: 20, color: AppColors.textMuted),
+                        ),
+                      );
+                    }),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmDisconnect(BuildContext context, String provider, String email) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Disconnect ${provider == "google" ? "Google Calendar" : "Outlook"}?'),
+        content: Text('Are you sure you want to disconnect $email? Events will no longer synchronize.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.overdue, foregroundColor: Colors.white),
+            onPressed: () {
+              if (provider == 'google') {
+                ref.read(connectedAccountsProvider.notifier).disconnectGoogle();
+              } else {
+                ref.read(connectedAccountsProvider.notifier).disconnectOutlook();
+              }
+              Navigator.of(ctx).pop();
+            },
+            child: const Text('Disconnect'),
+          ),
         ],
       ),
     );
