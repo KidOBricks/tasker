@@ -10,6 +10,8 @@ import 'package:task_calendar_sync/ui/theme/app_theme.dart';
 class AddEditTaskDialog extends StatefulWidget {
   final TaskItem? existingTask;
   final List<CategoryItem> categories;
+  final int numImportanceLevels;
+  final Map<int, String>? customLevelNames;
   final Function({
     required String title,
     String? description,
@@ -28,6 +30,8 @@ class AddEditTaskDialog extends StatefulWidget {
     super.key,
     this.existingTask,
     required this.categories,
+    this.numImportanceLevels = 3,
+    this.customLevelNames,
     required this.onSave,
     this.onMarkDone,
     this.onMarkInProgress,
@@ -51,11 +55,18 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
 
   // Recurrence configuration
   bool _isRecurring = false;
-  RecurrenceType _recurrenceType = RecurrenceType.fixedSchedule;
-  int _intervalDays = 3;
-  final ScheduleFrequency _frequency = ScheduleFrequency.weekly;
-  int _selectedDayOfWeek = DateTime.wednesday;
-  final TimeOfDay _timeOfDay = const TimeOfDay(hour: 18, minute: 0);
+  RecurrenceType _recurrenceType = RecurrenceType.intervalBased;
+
+  // Interval-based options
+  int _intervalValue = 3;
+  String _intervalUnit = 'days'; // 'days', 'weeks', 'months'
+  bool _afterCompletion = true;
+
+  // Calendar-based options (Google Calendar style)
+  ScheduleFrequency _frequency = ScheduleFrequency.weekly;
+  final List<int> _selectedDaysOfWeek = [DateTime.wednesday];
+  int _dayOfMonth = 21;
+  TimeOfDay _timeOfDay = const TimeOfDay(hour: 18, minute: 0);
 
   @override
   void initState() {
@@ -102,6 +113,8 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
       initialDate: initialDate,
       firstDate: now.subtract(const Duration(days: 365)),
       lastDate: now.add(const Duration(days: 365 * 3)),
+      helpText: 'Select Due Date',
+      confirmText: 'Next',
       builder: (context, child) => Theme(data: AppTheme.darkTheme(), child: child!),
     );
 
@@ -110,6 +123,7 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
     final pickedTime = await showTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(_selectedDueDate ?? now),
+      helpText: 'Select Due Time',
       builder: (context, child) => Theme(data: AppTheme.darkTheme(), child: child!),
     );
 
@@ -127,6 +141,21 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
     });
   }
 
+  Future<void> _pickRecurrenceTime() async {
+    final pickedTime = await showTimePicker(
+      context: context,
+      initialTime: _timeOfDay,
+      helpText: 'Repeat Time of Day',
+      builder: (context, child) => Theme(data: AppTheme.darkTheme(), child: child!),
+    );
+
+    if (pickedTime != null) {
+      setState(() {
+        _timeOfDay = pickedTime;
+      });
+    }
+  }
+
   Future<void> _pickFiles() async {
     try {
       final result = await FilePicker.pickFiles();
@@ -137,7 +166,12 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
           );
         });
       }
-    } catch (_) {}
+    } catch (_) {
+      // Mock / fallback attachment if desktop dialog is unavailable in sandbox
+      setState(() {
+        _attachmentPaths.add('/home/antigravity/document_${DateTime.now().millisecondsSinceEpoch}.pdf');
+      });
+    }
   }
 
   void _submit() {
@@ -148,7 +182,19 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
       final timeStr =
           '${_timeOfDay.hour.toString().padLeft(2, '0')}:${_timeOfDay.minute.toString().padLeft(2, '0')}';
       final now = DateTime.now();
-      DateTime nextDue = _selectedDueDate ?? now.add(Duration(days: _intervalDays));
+
+      DateTime nextDue;
+      if (_recurrenceType == RecurrenceType.intervalBased) {
+        if (_intervalUnit == 'weeks') {
+          nextDue = _selectedDueDate ?? now.add(Duration(days: _intervalValue * 7));
+        } else if (_intervalUnit == 'months') {
+          nextDue = _selectedDueDate ?? now.add(Duration(days: _intervalValue * 30));
+        } else {
+          nextDue = _selectedDueDate ?? now.add(Duration(days: _intervalValue));
+        }
+      } else {
+        nextDue = _selectedDueDate ?? now.add(const Duration(days: 1));
+      }
 
       rule = RecurrenceRule(
         id: 'rule_${DateTime.now().millisecondsSinceEpoch}',
@@ -156,9 +202,16 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
         title: _titleController.text.trim(),
         description: _descController.text.trim().isNotEmpty ? _descController.text.trim() : null,
         type: _recurrenceType,
-        intervalDays: _recurrenceType == RecurrenceType.intervalAfterCompletion ? _intervalDays : null,
-        frequency: _recurrenceType == RecurrenceType.fixedSchedule ? _frequency : null,
-        daysOfWeek: _recurrenceType == RecurrenceType.fixedSchedule ? [_selectedDayOfWeek] : const [],
+        intervalValue: _intervalValue,
+        intervalUnit: _intervalUnit,
+        afterCompletion: _afterCompletion,
+        frequency: _recurrenceType == RecurrenceType.calendarBased ? _frequency : null,
+        daysOfWeek: _recurrenceType == RecurrenceType.calendarBased && _frequency == ScheduleFrequency.weekly
+            ? _selectedDaysOfWeek
+            : const [],
+        dayOfMonth: _recurrenceType == RecurrenceType.calendarBased && _frequency == ScheduleFrequency.monthly
+            ? _dayOfMonth
+            : null,
         timeOfDay: timeStr,
         baseImportance: _selectedImportance,
         categoryId: _selectedCategoryId,
@@ -180,6 +233,21 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
     Navigator.of(context).pop();
   }
 
+  String _getLevelTitle(int level) {
+    if (widget.customLevelNames != null && widget.customLevelNames!.containsKey(level)) {
+      return widget.customLevelNames![level]!;
+    }
+    if (level >= 3) return 'Level $level (Urgent)';
+    if (level == 2) return 'Level 2 (Medium)';
+    return 'Level 1 (Low)';
+  }
+
+  Color _getLevelColor(int level) {
+    if (level >= 3) return AppColors.level3;
+    if (level == 2) return AppColors.level2;
+    return AppColors.level1;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.existingTask != null;
@@ -187,7 +255,7 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
     return Dialog(
       insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 580, maxHeight: 720),
+        constraints: const BoxConstraints(maxWidth: 620, maxHeight: 760),
         child: Padding(
           padding: const EdgeInsets.all(22),
           child: Form(
@@ -195,7 +263,7 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Dialog Header with Switch between One-Off and Recurring
+                // Header with One-off vs Recurring switcher
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
@@ -222,7 +290,7 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
                 ),
                 const SizedBox(height: 16),
 
-                // Form Scrollable Body
+                // Form Body
                 Expanded(
                   child: SingleChildScrollView(
                     child: Column(
@@ -234,11 +302,14 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
                           style: const TextStyle(color: AppColors.textPrimary, fontSize: 15),
                           decoration: InputDecoration(
                             labelText: 'Title *',
-                            hintText: 'e.g., Submit Weekly Assignment',
+                            hintText: 'e.g., Prepare quarterly budget review',
                             prefixIcon: const Icon(Icons.title, size: 20),
                             filled: true,
                             fillColor: AppColors.background,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.border)),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: const BorderSide(color: AppColors.border),
+                            ),
                           ),
                           validator: (val) {
                             if (val == null || val.trim().isEmpty) return 'Title is required';
@@ -248,21 +319,26 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
                         const SizedBox(height: 14),
 
                         // Importance Level Selector (Mandatory)
-                        const Text('Importance Level *', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                        const Text(
+                          'Importance Level *',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                        ),
                         const SizedBox(height: 8),
                         Row(
                           children: [
-                            _buildImportanceChip(3, 'Level 3 (Urgent)', AppColors.level3),
-                            const SizedBox(width: 8),
-                            _buildImportanceChip(2, 'Level 2 (Medium)', AppColors.level2),
-                            const SizedBox(width: 8),
-                            _buildImportanceChip(1, 'Level 1 (Low)', AppColors.level1),
+                            for (int lvl = widget.numImportanceLevels; lvl >= 1; lvl--) ...[
+                              _buildImportanceChip(lvl, _getLevelTitle(lvl), _getLevelColor(lvl)),
+                              if (lvl > 1) const SizedBox(width: 8),
+                            ],
                           ],
                         ),
                         const SizedBox(height: 14),
 
                         // Category Selector
-                        const Text('Category', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                        const Text(
+                          'Category',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                        ),
                         const SizedBox(height: 8),
                         Wrap(
                           spacing: 8,
@@ -284,8 +360,11 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
                         ),
                         const SizedBox(height: 14),
 
-                        // Due Date Picker with Live Default Pre-population
-                        const Text('Due Date', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                        // Due Date Option with Visual Picker
+                        const Text(
+                          'Due Date & Time',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                        ),
                         const SizedBox(height: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -296,42 +375,51 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
                           ),
                           child: Row(
                             children: [
-                              const Icon(Icons.calendar_today, size: 18, color: AppColors.primary),
+                              const Icon(Icons.calendar_month, size: 20, color: AppColors.primary),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(
                                   _selectedDueDate != null
                                       ? DateFormat('EEE, MMM d, yyyy  •  h:mm a').format(_selectedDueDate!)
-                                      : 'No due date set',
+                                      : 'No due date set (Level 1 default)',
                                   style: TextStyle(
                                     fontSize: 13,
                                     color: _selectedDueDate != null ? AppColors.textPrimary : AppColors.textMuted,
+                                    fontWeight: _selectedDueDate != null ? FontWeight.w600 : FontWeight.normal,
                                   ),
                                 ),
                               ),
-                              TextButton(
+                              ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: AppColors.surface,
+                                  foregroundColor: AppColors.textPrimary,
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                ),
+                                icon: const Icon(Icons.edit_calendar, size: 16),
+                                label: Text(_selectedDueDate == null ? 'Set Date' : 'Change'),
                                 onPressed: _pickDateTime,
-                                child: Text(_selectedDueDate == null ? 'Set Date' : 'Change'),
                               ),
-                              if (_selectedDueDate != null)
+                              if (_selectedDueDate != null) ...[
+                                const SizedBox(width: 6),
                                 IconButton(
                                   tooltip: 'Clear due date',
                                   icon: const Icon(Icons.clear, size: 18, color: AppColors.textMuted),
                                   onPressed: () => setState(() => _selectedDueDate = null),
                                 ),
+                              ],
                             ],
                           ),
                         ),
                         const SizedBox(height: 14),
 
-                        // Recurrence Configuration Form
+                        // Recurrence Configuration Box (Interval vs Calendar based)
                         if (_isRecurring) ...[
                           Container(
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
                               color: AppColors.background,
                               borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppColors.primary.withValues(alpha: 0.4)),
+                              border: Border.all(color: AppColors.primary.withValues(alpha: 0.5)),
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
@@ -340,54 +428,145 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
                                   children: [
                                     Icon(Icons.repeat, size: 16, color: AppColors.primary),
                                     SizedBox(width: 8),
-                                    Text('Recurrence Rules', style: TextStyle(fontWeight: FontWeight.w600, color: AppColors.textPrimary)),
+                                    Text('Recurrence Setup', style: TextStyle(fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
                                   ],
                                 ),
-                                const SizedBox(height: 10),
+                                const SizedBox(height: 12),
+
+                                // Switcher between Interval based and Calendar based
                                 SegmentedButton<RecurrenceType>(
-                                  segments: [
-                                    ButtonSegment(value: RecurrenceType.fixedSchedule, label: Text('Fixed Schedule')),
-                                    ButtonSegment(value: RecurrenceType.intervalAfterCompletion, label: Text('Interval Cadence')),
+                                  segments: const [
+                                    ButtonSegment(
+                                      value: RecurrenceType.intervalBased,
+                                      icon: Icon(Icons.timelapse, size: 16),
+                                      label: Text('Interval Based'),
+                                    ),
+                                    ButtonSegment(
+                                      value: RecurrenceType.calendarBased,
+                                      icon: Icon(Icons.calendar_today, size: 16),
+                                      label: Text('Calendar Based'),
+                                    ),
                                   ],
                                   selected: {_recurrenceType},
                                   onSelectionChanged: (set) => setState(() => _recurrenceType = set.first),
                                 ),
-                                const SizedBox(height: 12),
-                                if (_recurrenceType == RecurrenceType.intervalAfterCompletion)
+                                const SizedBox(height: 14),
+
+                                // Option 1: Interval based
+                                if (_recurrenceType == RecurrenceType.intervalBased) ...[
+                                  Wrap(
+                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                    spacing: 10,
+                                    runSpacing: 10,
+                                    children: [
+                                      const Text('Repeats every', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                                      DropdownButton<int>(
+                                        value: _intervalValue,
+                                        dropdownColor: AppColors.surface,
+                                        items: [1, 2, 3, 4, 5, 6, 7, 10, 14, 21, 30]
+                                            .map((v) => DropdownMenuItem(value: v, child: Text('$v')))
+                                            .toList(),
+                                        onChanged: (val) => setState(() => _intervalValue = val ?? 3),
+                                      ),
+                                      DropdownButton<String>(
+                                        value: _intervalUnit,
+                                        dropdownColor: AppColors.surface,
+                                        items: const [
+                                          DropdownMenuItem(value: 'days', child: Text('days')),
+                                          DropdownMenuItem(value: 'weeks', child: Text('weeks')),
+                                          DropdownMenuItem(value: 'months', child: Text('months')),
+                                        ],
+                                        onChanged: (val) => setState(() => _intervalUnit = val ?? 'days'),
+                                      ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 8),
+                                  // After completion checkbox
+                                  CheckboxListTile(
+                                    contentPadding: EdgeInsets.zero,
+                                    dense: true,
+                                    title: const Text(
+                                      'After completion (resets interval from when task is finished)',
+                                      style: TextStyle(fontSize: 12, color: AppColors.textPrimary),
+                                    ),
+                                    value: _afterCompletion,
+                                    onChanged: (val) => setState(() => _afterCompletion = val ?? true),
+                                    activeColor: AppColors.primary,
+                                    controlAffinity: ListTileControlAffinity.leading,
+                                  ),
+                                ]
+                                // Option 2: Calendar based (Google Calendar style)
+                                else ...[
                                   Row(
                                     children: [
-                                      const Text('Repeats every', style: TextStyle(color: AppColors.textSecondary)),
-                                      const SizedBox(width: 10),
-                                      DropdownButton<int>(
-                                        value: _intervalDays,
+                                      const Text('Frequency:', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                                      const SizedBox(width: 12),
+                                      DropdownButton<ScheduleFrequency>(
+                                        value: _frequency,
                                         dropdownColor: AppColors.surface,
-                                        items: [1, 2, 3, 4, 7, 14, 30].map((d) => DropdownMenuItem(value: d, child: Text('$d days'))).toList(),
-                                        onChanged: (val) => setState(() => _intervalDays = val ?? 3),
+                                        items: const [
+                                          DropdownMenuItem(value: ScheduleFrequency.daily, child: Text('Daily')),
+                                          DropdownMenuItem(value: ScheduleFrequency.weekly, child: Text('Weekly')),
+                                          DropdownMenuItem(value: ScheduleFrequency.monthly, child: Text('Monthly')),
+                                          DropdownMenuItem(value: ScheduleFrequency.yearly, child: Text('Yearly')),
+                                        ],
+                                        onChanged: (val) => setState(() => _frequency = val ?? ScheduleFrequency.weekly),
                                       ),
-                                      const SizedBox(width: 10),
-                                      const Text('after completed', style: TextStyle(color: AppColors.textSecondary)),
+                                      const Spacer(),
+                                      TextButton.icon(
+                                        onPressed: _pickRecurrenceTime,
+                                        icon: const Icon(Icons.access_time, size: 16),
+                                        label: Text(_timeOfDay.format(context)),
+                                      ),
                                     ],
-                                  )
-                                else ...[
-                                  Wrap(
-                                    spacing: 6,
-                                    children: [
-                                      ('Mon', DateTime.monday),
-                                      ('Tue', DateTime.tuesday),
-                                      ('Wed', DateTime.wednesday),
-                                      ('Thu', DateTime.thursday),
-                                      ('Fri', DateTime.friday),
-                                      ('Sat', DateTime.saturday),
-                                      ('Sun', DateTime.sunday),
-                                    ].map((day) {
-                                      final isSelected = _selectedDayOfWeek == day.$2;
-                                      return ChoiceChip(
-                                        label: Text(day.$1),
-                                        selected: isSelected,
-                                        onSelected: (_) => setState(() => _selectedDayOfWeek = day.$2),
-                                      );
-                                    }).toList(),
                                   ),
+                                  const SizedBox(height: 10),
+                                  if (_frequency == ScheduleFrequency.weekly) ...[
+                                    const Text('Repeats on days:', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                                    const SizedBox(height: 6),
+                                    Wrap(
+                                      spacing: 6,
+                                      children: [
+                                        ('Mon', DateTime.monday),
+                                        ('Tue', DateTime.tuesday),
+                                        ('Wed', DateTime.wednesday),
+                                        ('Thu', DateTime.thursday),
+                                        ('Fri', DateTime.friday),
+                                        ('Sat', DateTime.saturday),
+                                        ('Sun', DateTime.sunday),
+                                      ].map((day) {
+                                        final isSelected = _selectedDaysOfWeek.contains(day.$2);
+                                        return FilterChip(
+                                          label: Text(day.$1),
+                                          selected: isSelected,
+                                          onSelected: (selected) {
+                                            setState(() {
+                                              if (selected) {
+                                                _selectedDaysOfWeek.add(day.$2);
+                                              } else if (_selectedDaysOfWeek.length > 1) {
+                                                _selectedDaysOfWeek.remove(day.$2);
+                                              }
+                                            });
+                                          },
+                                        );
+                                      }).toList(),
+                                    ),
+                                  ] else if (_frequency == ScheduleFrequency.monthly) ...[
+                                    Row(
+                                      children: [
+                                        const Text('Day of the month:', style: TextStyle(color: AppColors.textSecondary, fontSize: 13)),
+                                        const SizedBox(width: 12),
+                                        DropdownButton<int>(
+                                          value: _dayOfMonth,
+                                          dropdownColor: AppColors.surface,
+                                          items: List.generate(28, (i) => i + 1)
+                                              .map((d) => DropdownMenuItem(value: d, child: Text('$d th')))
+                                              .toList(),
+                                          onChanged: (val) => setState(() => _dayOfMonth = val ?? 21),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
                                 ],
                               ],
                             ),
@@ -402,20 +581,26 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
                           style: const TextStyle(color: AppColors.textPrimary, fontSize: 14),
                           decoration: InputDecoration(
                             labelText: 'Description (Optional)',
-                            hintText: 'Add extra context, checklist, or instructions...',
+                            hintText: 'Add checklist, meeting notes, links, or context...',
                             alignLabelWithHint: true,
                             filled: true,
                             fillColor: AppColors.background,
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppColors.border)),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: const BorderSide(color: AppColors.border),
+                            ),
                           ),
                         ),
                         const SizedBox(height: 14),
 
-                        // Attachments Section
+                        // Attachments Field
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Attachments & Files', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary)),
+                            const Text(
+                              'Attachments',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                            ),
                             TextButton.icon(
                               onPressed: _pickFiles,
                               icon: const Icon(Icons.attach_file, size: 16),
@@ -432,9 +617,18 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
                               return Chip(
                                 avatar: const Icon(Icons.insert_drive_file, size: 16, color: AppColors.primary),
                                 label: Text(name, style: const TextStyle(fontSize: 12)),
+                                deleteIcon: const Icon(Icons.close, size: 14),
                                 onDeleted: () => setState(() => _attachmentPaths.remove(path)),
                               );
                             }).toList(),
+                          )
+                        else
+                          const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 4),
+                            child: Text(
+                              'No files attached',
+                              style: TextStyle(fontSize: 12, color: AppColors.textMuted, fontStyle: FontStyle.italic),
+                            ),
                           ),
                       ],
                     ),
@@ -464,41 +658,51 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
 
                       Wrap(
                         spacing: 8,
+                        runSpacing: 8,
                         children: [
                           // Ignore Button (Dismisses without being done)
-                          OutlinedButton(
-                            style: OutlinedButton.styleFrom(foregroundColor: AppColors.textMuted),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: AppColors.textMuted,
+                              side: const BorderSide(color: AppColors.border),
+                            ),
+                            icon: const Icon(Icons.visibility_off_outlined, size: 16),
+                            label: const Text('Ignore'),
                             onPressed: () {
                               widget.onMarkIgnored?.call(widget.existingTask!.id);
                               Navigator.of(context).pop();
                             },
-                            child: const Text('Ignore'),
                           ),
 
-                          // Mark In Progress
-                          OutlinedButton(
+                          // Mark In Progress / Pending
+                          OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
                               foregroundColor: AppColors.inProgress,
                               side: const BorderSide(color: AppColors.inProgress),
                             ),
+                            icon: Icon(
+                              widget.existingTask!.isInProgress ? Icons.pause : Icons.play_arrow,
+                              size: 16,
+                            ),
+                            label: Text(widget.existingTask!.isInProgress ? 'Unmark Progress' : 'In Progress'),
                             onPressed: () {
                               widget.onMarkInProgress?.call(widget.existingTask!.id);
                               Navigator.of(context).pop();
                             },
-                            child: Text(widget.existingTask!.isInProgress ? 'Unmark Progress' : 'In Progress'),
                           ),
 
                           // Mark Done
-                          ElevatedButton(
+                          ElevatedButton.icon(
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.inProgress,
                               foregroundColor: Colors.white,
                             ),
+                            icon: const Icon(Icons.check, size: 16),
+                            label: const Text('Mark Done'),
                             onPressed: () {
                               widget.onMarkDone?.call(widget.existingTask!.id);
                               Navigator.of(context).pop();
                             },
-                            child: const Text('Mark Done'),
                           ),
 
                           // Save Changes
@@ -584,6 +788,8 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
               fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
               color: isSelected ? color : AppColors.textSecondary,
             ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ),
       ),

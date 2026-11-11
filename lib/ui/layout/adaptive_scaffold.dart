@@ -26,9 +26,14 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
     SettingsScreen(),
   ];
 
+  void _navigateToSettings() {
+    setState(() => _selectedIndex = 4);
+  }
+
   @override
   Widget build(BuildContext context) {
     final sectioned = ref.watch(sectionedTasksProvider);
+    final profile = ref.watch(profileProvider);
     final overdueCount = sectioned.overdueTasks.length;
     final isDesktop = MediaQuery.of(context).size.width >= 800;
 
@@ -44,49 +49,95 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
               onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
               labelType: NavigationRailLabelType.all,
               leading: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 16),
+                padding: const EdgeInsets.symmetric(vertical: 12),
                 child: Column(
                   children: [
-                    Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.2),
+                    // User Profile Avatar & Name (Clicking launches Settings/Profile)
+                    Tooltip(
+                      message: 'Click to open Profile & Settings',
+                      child: InkWell(
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppColors.primary, width: 1.5),
+                        onTap: _navigateToSettings,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: _selectedIndex == 4
+                                ? AppColors.primary.withValues(alpha: 0.25)
+                                : Colors.transparent,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(
+                              color: _selectedIndex == 4 ? AppColors.primary : AppColors.border,
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              CircleAvatar(
+                                radius: 18,
+                                backgroundColor: AppColors.primary,
+                                child: Text(
+                                  profile.displayName.isNotEmpty ? profile.displayName[0] : 'A',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.white,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              SizedBox(
+                                width: 56,
+                                child: Text(
+                                  profile.displayName.split(' ').first,
+                                  textAlign: TextAlign.center,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppColors.textPrimary,
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                      child: const Icon(Icons.sync_alt, color: AppColors.primary, size: 24),
                     ),
-                    const SizedBox(height: 6),
-                    const Text('SyncTask', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11, color: AppColors.textPrimary)),
+                    const SizedBox(height: 8),
+                    const Divider(color: AppColors.border, indent: 12, endIndent: 12),
                   ],
                 ),
               ),
               destinations: [
                 NavigationRailDestination(
-                  icon: const Icon(Icons.task_alt),
+                  icon: Badge(
+                    isLabelVisible: overdueCount > 0,
+                    label: Text('$overdueCount'),
+                    backgroundColor: AppColors.overdue,
+                    child: const Icon(Icons.task_alt),
+                  ),
                   selectedIcon: const Icon(Icons.task_alt, color: AppColors.primary),
                   label: const Text('Tasks'),
                 ),
-                NavigationRailDestination(
-                  icon: const Icon(Icons.calendar_month_outlined),
-                  selectedIcon: const Icon(Icons.calendar_month, color: AppColors.primary),
-                  label: const Text('Calendar'),
+                const NavigationRailDestination(
+                  icon: Icon(Icons.calendar_month_outlined),
+                  selectedIcon: Icon(Icons.calendar_month, color: AppColors.primary),
+                  label: Text('Calendar'),
                 ),
-                NavigationRailDestination(
-                  icon: const Icon(Icons.bar_chart_outlined),
-                  selectedIcon: const Icon(Icons.bar_chart, color: AppColors.primary),
-                  label: const Text('Progress'),
+                const NavigationRailDestination(
+                  icon: Icon(Icons.bar_chart_outlined),
+                  selectedIcon: Icon(Icons.bar_chart, color: AppColors.primary),
+                  label: Text('Progress'),
                 ),
-                NavigationRailDestination(
-                  icon: const Icon(Icons.lightbulb_outline),
-                  selectedIcon: const Icon(Icons.lightbulb, color: AppColors.primary),
-                  label: const Text('Ideas'),
+                const NavigationRailDestination(
+                  icon: Icon(Icons.lightbulb_outline),
+                  selectedIcon: Icon(Icons.lightbulb, color: AppColors.primary),
+                  label: Text('Ideas'),
                 ),
-                NavigationRailDestination(
-                  icon: const Icon(Icons.settings_outlined),
-                  selectedIcon: const Icon(Icons.settings, color: AppColors.primary),
-                  label: const Text('Settings'),
+                const NavigationRailDestination(
+                  icon: Icon(Icons.settings_outlined),
+                  selectedIcon: Icon(Icons.settings, color: AppColors.primary),
+                  label: Text('Profile'),
                 ),
               ],
             ),
@@ -103,6 +154,53 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
 
     // Mobile Portrait Layout (Android)
     return Scaffold(
+      appBar: AppBar(
+        title: Row(
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: AppColors.primary.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.sync_alt, color: AppColors.primary, size: 16),
+            ),
+            const SizedBox(width: 8),
+            const Text('Tasker', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
+        ),
+        actions: [
+          // User Avatar on Mobile Top Bar (Clicking launches Profile/Settings)
+          Tooltip(
+            message: 'Profile & Settings',
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: _navigateToSettings,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 14,
+                      backgroundColor: AppColors.primary,
+                      child: Text(
+                        profile.displayName.isNotEmpty ? profile.displayName[0] : 'A',
+                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      profile.displayName.split(' ').first,
+                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
       body: _screens[_selectedIndex],
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
@@ -135,9 +233,9 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
             label: 'Ideas',
           ),
           const NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings, color: AppColors.primary),
-            label: 'Settings',
+            icon: Icon(Icons.person_outline),
+            selectedIcon: Icon(Icons.person, color: AppColors.primary),
+            label: 'Profile',
           ),
         ],
       ),

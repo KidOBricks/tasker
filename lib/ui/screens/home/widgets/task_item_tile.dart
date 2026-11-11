@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:task_calendar_sync/domain/models/task_item.dart';
 import 'package:task_calendar_sync/domain/models/category_item.dart';
 import 'package:task_calendar_sync/ui/theme/app_theme.dart';
+import 'package:task_calendar_sync/ui/widgets/celebration_confetti.dart';
 
 class TaskItemTile extends StatelessWidget {
   final TaskItem task;
@@ -10,6 +11,8 @@ class TaskItemTile extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onToggleComplete;
   final VoidCallback onToggleInProgress;
+  final VoidCallback? onMarkIgnored;
+  final VoidCallback? onDelete;
 
   const TaskItemTile({
     super.key,
@@ -18,6 +21,8 @@ class TaskItemTile extends StatelessWidget {
     required this.onTap,
     required this.onToggleComplete,
     required this.onToggleInProgress,
+    this.onMarkIgnored,
+    this.onDelete,
   });
 
   Color _getPriorityColor() {
@@ -25,6 +30,13 @@ class TaskItemTile extends StatelessWidget {
     if (task.effectiveImportance >= 3) return AppColors.level3;
     if (task.effectiveImportance == 2) return AppColors.level2;
     return AppColors.level1;
+  }
+
+  void _handleComplete(BuildContext context) {
+    if (!task.isCompleted) {
+      CelebrationConfettiOverlay.of(context)?.trigger();
+    }
+    onToggleComplete();
   }
 
   @override
@@ -169,7 +181,7 @@ class TaskItemTile extends StatelessWidget {
 
                 const SizedBox(width: 8),
 
-                // Right Side Actions: "In Progress" Button + "Complete" Checkbox
+                // Right Side Actions: "In Progress" Button + "Complete" Checkbox + Quick Overflow Menu
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -189,7 +201,6 @@ class TaskItemTile extends StatelessWidget {
                           ),
                         ),
                         padding: const EdgeInsets.all(6),
-                        
                       ),
                       icon: Icon(
                         isInProgress ? Icons.play_arrow : Icons.play_arrow_outlined,
@@ -198,16 +209,86 @@ class TaskItemTile extends StatelessWidget {
                       ),
                     ),
 
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
 
-                    // Complete Checkbox
+                    // Complete Checkbox with celebration confetti
                     Checkbox(
                       value: task.isCompleted,
-                      onChanged: (_) => onToggleComplete(),
+                      onChanged: (_) => _handleComplete(context),
                       activeColor: AppColors.inProgress,
                       checkColor: Colors.white,
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
                       side: const BorderSide(color: AppColors.textMuted, width: 1.5),
+                    ),
+
+                    // Quick Options Menu (Edit, Ignore, Delete)
+                    PopupMenuButton<String>(
+                      tooltip: 'Task options',
+                      icon: const Icon(Icons.more_vert, size: 18, color: AppColors.textMuted),
+                      color: AppColors.surface,
+                      onSelected: (val) {
+                        switch (val) {
+                          case 'edit':
+                            onTap();
+                            break;
+                          case 'in_progress':
+                            onToggleInProgress();
+                            break;
+                          case 'ignore':
+                            onMarkIgnored?.call();
+                            break;
+                          case 'delete':
+                            onDelete?.call();
+                            break;
+                        }
+                      },
+                      itemBuilder: (ctx) => [
+                        const PopupMenuItem(
+                          value: 'edit',
+                          child: Row(
+                            children: [
+                              Icon(Icons.edit, size: 16, color: AppColors.primary),
+                              SizedBox(width: 10),
+                              Text('Edit Task'),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: 'in_progress',
+                          child: Row(
+                            children: [
+                              Icon(
+                                isInProgress ? Icons.pause : Icons.play_arrow,
+                                size: 16,
+                                color: AppColors.inProgress,
+                              ),
+                              const SizedBox(width: 10),
+                              Text(isInProgress ? 'Unmark In-Progress' : 'Mark In-Progress'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'ignore',
+                          child: Row(
+                            children: [
+                              Icon(Icons.visibility_off_outlined, size: 16, color: AppColors.textMuted),
+                              SizedBox(width: 10),
+                              Text('Ignore Task'),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuDivider(),
+                        const PopupMenuItem(
+                          value: 'delete',
+                          child: Row(
+                            children: [
+                              Icon(Icons.delete_outline, size: 16, color: AppColors.overdue),
+                              SizedBox(width: 10),
+                              Text('Delete', style: TextStyle(color: AppColors.overdue)),
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

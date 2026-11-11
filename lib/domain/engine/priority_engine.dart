@@ -35,17 +35,17 @@ class PriorityEngine {
     }
 
     final diff = dueDate.difference(now);
-    final level3Days = profile.level3ThresholdDays;
-    final level2Days = profile.level2ThresholdDays;
+    final level3Duration = profile.getThresholdDuration(3);
+    final level2Duration = profile.getThresholdDuration(2);
 
     int computedImportance = task.baseImportance;
 
     // Escalation rule check:
-    if (diff.inSeconds <= Duration(days: level3Days).inSeconds) {
-      // Due today or tomorrow -> Escalate to level 3 (or max configured level)
+    if (diff.inSeconds <= level3Duration.inSeconds) {
+      // Escalates to Level 3 (or max configured level)
       computedImportance = max(task.baseImportance, min(3, profile.numImportanceLevels));
-    } else if (diff.inSeconds <= Duration(days: level2Days).inSeconds) {
-      // Due within 7 days -> Escalate to level 2
+    } else if (diff.inSeconds <= level2Duration.inSeconds) {
+      // Escalates to Level 2
       computedImportance = max(task.baseImportance, min(2, profile.numImportanceLevels));
     } else {
       // Postponed or far away -> Revert to original base importance
@@ -62,7 +62,7 @@ class PriorityEngine {
   }
 
   /// Calculates smart default due date when creating a new task based on importance:
-  /// - Level 3: End of tomorrow (23:59:59)
+  /// - Level 3+: End of tomorrow (23:59:59)
   /// - Level 2: 7 days away (23:59:59)
   /// - Level 1: No due date (null)
   static DateTime? getDefaultDueDateForImportance(
@@ -101,9 +101,15 @@ class PriorityEngine {
         return 1;
       }
 
-      // 3. Fallback to newest created
+      // 3. Higher effective importance first
+      if (a.effectiveImportance != b.effectiveImportance) {
+        return b.effectiveImportance.compareTo(a.effectiveImportance);
+      }
+
+      // 4. Fallback to newest created
       return b.createdAt.compareTo(a.createdAt);
     });
+
     return sorted;
   }
 }

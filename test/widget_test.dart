@@ -27,6 +27,6 @@ void main() {
     expect(find.text('Calendar'), findsWidgets);
     expect(find.text('Progress'), findsWidgets);
     expect(find.text('Ideas'), findsWidgets);
-    expect(find.text('Settings'), findsWidgets);
+    expect(find.text('Profile'), findsWidgets);
   });
 }

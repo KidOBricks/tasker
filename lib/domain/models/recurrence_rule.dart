@@ -1,22 +1,37 @@
 import 'dart:convert';
 
 enum RecurrenceType {
+  intervalBased,
+  calendarBased,
   intervalAfterCompletion,
   fixedSchedule;
 
   static RecurrenceType fromString(String? value) {
-    if (value == 'fixed_schedule' || value == 'fixedSchedule') {
-      return RecurrenceType.fixedSchedule;
+    if (value == 'calendarBased' ||
+        value == 'fixed_schedule' ||
+        value == 'fixedSchedule' ||
+        value == 'calendar_based') {
+      return RecurrenceType.calendarBased;
     }
-    return RecurrenceType.intervalAfterCompletion;
+    return RecurrenceType.intervalBased;
   }
+
+  bool get isInterval =>
+      this == RecurrenceType.intervalBased ||
+      this == RecurrenceType.intervalAfterCompletion;
+
+  bool get isCalendar =>
+      this == RecurrenceType.calendarBased ||
+      this == RecurrenceType.fixedSchedule;
 
   String get asString {
     switch (this) {
+      case RecurrenceType.calendarBased:
       case RecurrenceType.fixedSchedule:
-        return 'fixed_schedule';
+        return 'calendar_based';
+      case RecurrenceType.intervalBased:
       case RecurrenceType.intervalAfterCompletion:
-        return 'interval_after_completion';
+        return 'interval_based';
     }
   }
 }
@@ -24,7 +39,8 @@ enum RecurrenceType {
 enum ScheduleFrequency {
   daily,
   weekly,
-  monthly;
+  monthly,
+  yearly;
 
   static ScheduleFrequency fromString(String? value) {
     switch (value) {
@@ -32,6 +48,8 @@ enum ScheduleFrequency {
         return ScheduleFrequency.daily;
       case 'monthly':
         return ScheduleFrequency.monthly;
+      case 'yearly':
+        return ScheduleFrequency.yearly;
       case 'weekly':
       default:
         return ScheduleFrequency.weekly;
@@ -46,6 +64,8 @@ enum ScheduleFrequency {
         return 'weekly';
       case ScheduleFrequency.monthly:
         return 'monthly';
+      case ScheduleFrequency.yearly:
+        return 'yearly';
     }
   }
 }
@@ -56,11 +76,18 @@ class RecurrenceRule {
   final String title;
   final String? description;
   final RecurrenceType type;
-  final int? intervalDays; // e.g. 3 days after completion
+
+  // Interval-based properties (e.g. every 3 days, or every 6 weeks after completion)
+  final int intervalValue; // e.g. 3
+  final String intervalUnit; // 'days', 'weeks', 'months'
+  final bool afterCompletion; // true = "after completion", false = "since scheduled date"
+
+  // Calendar-based properties (Google Calendar style)
   final ScheduleFrequency? frequency;
   final List<int> daysOfWeek; // e.g. [DateTime.wednesday]
   final int? dayOfMonth; // e.g. 21 for 21st of every month
   final String timeOfDay; // "HH:mm", e.g. "17:00"
+
   final int baseImportance;
   final String categoryId;
   final DateTime? lastMissedDueDate; // for sequential catch-up tracking
@@ -74,7 +101,10 @@ class RecurrenceRule {
     required this.title,
     this.description,
     required this.type,
-    this.intervalDays,
+    int? intervalDays,
+    int? intervalValue,
+    this.intervalUnit = 'days',
+    this.afterCompletion = true,
     this.frequency,
     this.daysOfWeek = const [],
     this.dayOfMonth,
@@ -85,7 +115,57 @@ class RecurrenceRule {
     required this.nextDueAt,
     this.isActive = true,
     required this.createdAt,
-  });
+  }) : intervalValue = intervalValue ?? intervalDays ?? 3;
+
+  // Backward-compatibility getter for interval in days
+  int get intervalDays {
+    if (intervalUnit == 'weeks') return intervalValue * 7;
+    if (intervalUnit == 'months') return intervalValue * 30;
+    return intervalValue;
+  }
+
+  String get recurrenceSummary {
+    if (type.isInterval) {
+      final unitLabel = intervalValue == 1
+          ? (intervalUnit == 'days' ? 'day' : intervalUnit == 'weeks' ? 'week' : 'month')
+          : intervalUnit;
+      final afterStr = afterCompletion ? ' after completion' : '';
+      return 'Every $intervalValue $unitLabel$afterStr';
+    } else {
+      switch (frequency ?? ScheduleFrequency.weekly) {
+        case ScheduleFrequency.daily:
+          return 'Daily at $timeOfDay';
+        case ScheduleFrequency.weekly:
+          final days = daysOfWeek.isEmpty
+              ? 'Wednesdays'
+              : daysOfWeek.map((d) {
+                  switch (d) {
+                    case DateTime.monday:
+                      return 'Mon';
+                    case DateTime.tuesday:
+                      return 'Tue';
+                    case DateTime.wednesday:
+                      return 'Wed';
+                    case DateTime.thursday:
+                      return 'Thu';
+                    case DateTime.friday:
+                      return 'Fri';
+                    case DateTime.saturday:
+                      return 'Sat';
+                    case DateTime.sunday:
+                      return 'Sun';
+                    default:
+                      return '';
+                  }
+                }).join(', ');
+          return 'Every $days at $timeOfDay';
+        case ScheduleFrequency.monthly:
+          return 'Monthly on the ${dayOfMonth ?? 1}th at $timeOfDay';
+        case ScheduleFrequency.yearly:
+          return 'Yearly at $timeOfDay';
+      }
+    }
+  }
 
   RecurrenceRule copyWith({
     String? id,
@@ -94,6 +174,9 @@ class RecurrenceRule {
     String? description,
     RecurrenceType? type,
     int? intervalDays,
+    int? intervalValue,
+    String? intervalUnit,
+    bool? afterCompletion,
     ScheduleFrequency? frequency,
     List<int>? daysOfWeek,
     int? dayOfMonth,
@@ -112,7 +195,9 @@ class RecurrenceRule {
       title: title ?? this.title,
       description: description ?? this.description,
       type: type ?? this.type,
-      intervalDays: intervalDays ?? this.intervalDays,
+      intervalValue: intervalValue ?? intervalDays ?? this.intervalValue,
+      intervalUnit: intervalUnit ?? this.intervalUnit,
+      afterCompletion: afterCompletion ?? this.afterCompletion,
       frequency: frequency ?? this.frequency,
       daysOfWeek: daysOfWeek ?? this.daysOfWeek,
       dayOfMonth: dayOfMonth ?? this.dayOfMonth,
@@ -135,7 +220,10 @@ class RecurrenceRule {
       'title': title,
       'description': description,
       'type': type.asString,
+      'intervalValue': intervalValue,
       'intervalDays': intervalDays,
+      'intervalUnit': intervalUnit,
+      'afterCompletion': afterCompletion,
       'frequency': frequency?.asString,
       'daysOfWeek': daysOfWeek,
       'dayOfMonth': dayOfMonth,
@@ -150,13 +238,20 @@ class RecurrenceRule {
   }
 
   factory RecurrenceRule.fromMap(Map<String, dynamic> map) {
+    final legacyInterval = map['intervalDays'] is int ? map['intervalDays'] as int : 3;
+    final intervalVal = map['intervalValue'] is int
+        ? map['intervalValue'] as int
+        : legacyInterval;
+
     return RecurrenceRule(
       id: map['id'] ?? '',
       userId: map['userId'] ?? '',
       title: map['title'] ?? '',
       description: map['description'],
       type: RecurrenceType.fromString(map['type']),
-      intervalDays: map['intervalDays'] is int ? map['intervalDays'] : null,
+      intervalValue: intervalVal,
+      intervalUnit: map['intervalUnit'] ?? 'days',
+      afterCompletion: map['afterCompletion'] != false,
       frequency: map['frequency'] != null
           ? ScheduleFrequency.fromString(map['frequency'])
           : null,

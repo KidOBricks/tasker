@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:task_calendar_sync/domain/engine/recurrence_engine.dart';
 import 'package:task_calendar_sync/domain/models/recurrence_rule.dart';
 import 'package:task_calendar_sync/domain/models/task_item.dart';
+import 'package:task_calendar_sync/domain/models/user_profile.dart';
 
 void main() {
   group('RecurrenceEngine Tests', () {
@@ -26,6 +27,33 @@ void main() {
 
       expect(next.nextDueAt, now.add(const Duration(days: 4)));
       expect(next.updatedLastMissedDueDate, isNull);
+    });
+
+    test('Interval in weeks with afterCompletion false calculates from originalDueDate', () {
+      final originalDate = DateTime(2026, 11, 1, 10, 0, 0);
+      final completionDate = DateTime(2026, 11, 5, 12, 0, 0);
+
+      final rule = RecurrenceRule(
+        id: 'r_weeks',
+        userId: 'u1',
+        title: 'Review financials',
+        type: RecurrenceType.intervalBased,
+        intervalValue: 2,
+        intervalUnit: 'weeks', // 14 days
+        afterCompletion: false, // from originalDueDate
+        baseImportance: 2,
+        nextDueAt: originalDate,
+        createdAt: originalDate,
+      );
+
+      final next = RecurrenceEngine.calculateNextOccurrence(
+        rule: rule,
+        actionTime: completionDate,
+        originalDueDate: originalDate,
+      );
+
+      // Calculates 14 days from Nov 1 -> Nov 15
+      expect(next.nextDueAt, originalDate.add(const Duration(days: 14)));
     });
 
     test('Fixed weekly schedule steps forward sequentially when catching up late', () {
@@ -135,6 +163,50 @@ void main() {
       expect(result.spawnedTask, isNotNull);
       expect(result.spawnedTask!.dueDate, now.add(const Duration(days: 1)));
       expect(result.updatedRule.isActive, isTrue); // schedule remains active
+    });
+
+    test('Vacation Mode freezes selected recurring chore and prevents next spawn', () {
+      final rule = RecurrenceRule(
+        id: 'r_vacation',
+        userId: 'u1',
+        title: 'Take out office trash',
+        type: RecurrenceType.intervalBased,
+        intervalValue: 3,
+        baseImportance: 1,
+        nextDueAt: now,
+        createdAt: now,
+      );
+
+      final task = TaskItem(
+        id: 'task_trash',
+        userId: 'u1',
+        title: 'Take out office trash',
+        baseImportance: 1,
+        effectiveImportance: 1,
+        dueDate: now,
+        createdAt: now,
+        recurrenceRuleId: rule.id,
+      );
+
+      final profileWithVacation = UserProfile(
+        uid: 'u1',
+        email: 'test@example.com',
+        displayName: 'Test',
+        vacationModeEnabled: true,
+        vacationFrozenChoreIds: ['r_vacation'],
+      );
+
+      final result = RecurrenceEngine.handleTaskCompletion(
+        task: task,
+        rule: rule,
+        finalStatus: TaskStatus.completed,
+        actionTime: now,
+        userProfile: profileWithVacation,
+      );
+
+      expect(result.archivedTask.status, TaskStatus.completed);
+      // Because chore is frozen in vacation mode, spawnedTask is null
+      expect(result.spawnedTask, isNull);
     });
   });
 }
