@@ -482,17 +482,20 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
                                   ),
                                   const SizedBox(height: 8),
                                   // After completion checkbox
-                                  CheckboxListTile(
-                                    contentPadding: EdgeInsets.zero,
-                                    dense: true,
-                                    title: const Text(
-                                      'After completion (resets interval from when task is finished)',
-                                      style: TextStyle(fontSize: 12, color: AppColors.textPrimary),
+                                  Material(
+                                    color: Colors.transparent,
+                                    child: CheckboxListTile(
+                                      contentPadding: EdgeInsets.zero,
+                                      dense: true,
+                                      title: const Text(
+                                        'After completion (resets interval from when task is finished)',
+                                        style: TextStyle(fontSize: 12, color: AppColors.textPrimary),
+                                      ),
+                                      value: _afterCompletion,
+                                      onChanged: (val) => setState(() => _afterCompletion = val ?? true),
+                                      activeColor: AppColors.primary,
+                                      controlAffinity: ListTileControlAffinity.leading,
                                     ),
-                                    value: _afterCompletion,
-                                    onChanged: (val) => setState(() => _afterCompletion = val ?? true),
-                                    activeColor: AppColors.primary,
-                                    controlAffinity: ListTileControlAffinity.leading,
                                   ),
                                 ]
                                 // Option 2: Calendar based (Google Calendar style)
