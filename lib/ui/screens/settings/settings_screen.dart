@@ -1,6 +1,8 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import '../../../data/services/database_service.dart';
 import '../../../state/app_state.dart';
 import '../../../state/auth_state.dart';
 import '../../../state/integration_state.dart';
@@ -10,25 +12,21 @@ import 'auto_scheduled_tasks_screen.dart';
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
-  void _showPasswordResetDialog(BuildContext context) {
+  void _showPasswordHelpDialog(BuildContext context) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Password Reset'),
-        content: const Text('A password reset link will be sent to your registered account email address.'),
+        title: const Text('Password & Account Access'),
+        content: const Text(
+          'Tasker does not send automated reset emails.\n\n'
+          '• You can sign in anytime using Google or Microsoft SSO.\n'
+          '• To change an email/password login, ask your administrator to update your password in the PocketBase Admin UI (/_/).',
+          style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+        ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
           ElevatedButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Password reset instructions sent! Check your inbox.')),
-              );
-            },
-            child: const Text('Send Link'),
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
           ),
         ],
       ),
@@ -37,8 +35,13 @@ class SettingsScreen extends ConsumerWidget {
 
   void _showEditProfileDialog(BuildContext context, WidgetRef ref) {
     final profile = ref.read(profileProvider);
-    final nameController = TextEditingController(text: profile.displayName);
-    final emailController = TextEditingController(text: profile.email);
+    final authUser = ref.read(authProvider);
+    final nameController = TextEditingController(
+      text: profile.displayName.isNotEmpty ? profile.displayName : (authUser?.displayName ?? ''),
+    );
+    final emailController = TextEditingController(
+      text: authUser?.email ?? profile.email,
+    );
 
     showDialog(
       context: context,
@@ -54,25 +57,117 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: 12),
             TextField(
               controller: emailController,
-              decoration: const InputDecoration(labelText: 'Email Address'),
+              readOnly: true,
+              decoration: const InputDecoration(
+                labelText: 'Email Address (Managed in PocketBase)',
+              ),
             ),
           ],
         ),
         actions: [
           TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
           ElevatedButton(
-            onPressed: () {
-              ref.read(profileProvider.notifier).updateSettings();
-              Navigator.of(ctx).pop();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Profile information updated!')),
-              );
+            onPressed: () async {
+              final nextName = nameController.text.trim();
+              if (nextName.isEmpty) return;
+              final nav = Navigator.of(ctx);
+              final messenger = ScaffoldMessenger.of(context);
+              try {
+                await ref.read(authProvider.notifier).updateDisplayName(nextName);
+                if (ctx.mounted) nav.pop();
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('Profile display name updated!')),
+                );
+              } catch (e) {
+                messenger.showSnackBar(
+                  SnackBar(
+                    content: Text('Failed to update profile: ${e.toString().replaceFirst("Exception: ", "")}'),
+                    backgroundColor: AppColors.overdue,
+                  ),
+                );
+              }
             },
             child: const Text('Save'),
           ),
         ],
       ),
     );
+  }
+
+  void _showServerUrlDialog(BuildContext context, WidgetRef ref) {
+    final currentUrl = ref.read(databaseServiceProvider).serverUrl;
+    final urlController = TextEditingController(text: currentUrl);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Tasker Server URL'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Set the base URL of your PocketBase server (for example https://1-2-3-4.sslip.io).',
+              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: urlController,
+              decoration: const InputDecoration(
+                labelText: 'Server URL',
+                hintText: 'https://1-2-3-4.sslip.io',
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              final nextUrl = urlController.text.trim();
+              if (!nextUrl.startsWith('http://') && !nextUrl.startsWith('https://')) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('URL must start with https:// or http://')),
+                );
+                return;
+              }
+              await ref.read(authProvider.notifier).updateServerUrl(nextUrl);
+              final user = ref.read(authProvider);
+              if (user != null) {
+                await ref.read(databaseServiceProvider).performCloudSync(userId: user.id);
+              }
+              if (ctx.mounted) Navigator.of(ctx).pop();
+            },
+            child: const Text('Save & Sync'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _connectIntegration(BuildContext context, WidgetRef ref, String provider) async {
+    try {
+      await ref.read(connectedAccountsProvider.notifier).connectProvider(provider);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Complete ${provider == "google" ? "Google" : "Microsoft"} authorization in your browser, then return here.',
+            ),
+            backgroundColor: AppColors.primary,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: AppColors.overdue,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _pickReviewTime(BuildContext context, WidgetRef ref, String currentTime) async {
@@ -116,6 +211,9 @@ class SettingsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final profile = ref.watch(profileProvider);
     final rules = ref.watch(recurrenceRulesProvider);
+    final authUser = ref.watch(authProvider);
+    final shownName = profile.displayName.isNotEmpty ? profile.displayName : (authUser?.displayName ?? 'User');
+    final shownEmail = authUser?.email.isNotEmpty == true ? authUser!.email : profile.email;
 
     return Scaffold(
       appBar: AppBar(
@@ -137,7 +235,7 @@ class SettingsScreen extends ConsumerWidget {
                         radius: 26,
                         backgroundColor: AppColors.primary,
                         child: Text(
-                          profile.displayName.isNotEmpty ? profile.displayName[0] : 'U',
+                          shownName.isNotEmpty ? shownName[0].toUpperCase() : 'U',
                           style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
                         ),
                       ),
@@ -147,10 +245,10 @@ class SettingsScreen extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              profile.displayName,
+                              shownName,
                               style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
                             ),
-                            Text(profile.email, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+                            Text(shownEmail, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
                           ],
                         ),
                       ),
@@ -160,7 +258,7 @@ class SettingsScreen extends ConsumerWidget {
                         onPressed: () => _showEditProfileDialog(context, ref),
                       ),
                       OutlinedButton(
-                        onPressed: () => _showPasswordResetDialog(context),
+                        onPressed: () => _showPasswordHelpDialog(context),
                         child: const Text('Reset Pass'),
                       ),
                     ],
@@ -183,8 +281,11 @@ class SettingsScreen extends ConsumerWidget {
                   // Cloud Database Row
                   Consumer(
                     builder: (context, ref, _) {
-                      final syncStatus = ref.watch(syncStatusProvider);
+                      final syncStatus = ref.watch(syncStatusProvider).value ?? SyncStatus.offline;
                       final dbService = ref.read(databaseServiceProvider);
+                      final badgeColor = syncStatus == SyncStatus.synced
+                          ? Colors.green
+                          : (syncStatus == SyncStatus.syncing ? AppColors.primary : Colors.orange);
                       return Row(
                         children: [
                           Container(
@@ -200,28 +301,38 @@ class SettingsScreen extends ConsumerWidget {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Row(
+                                Wrap(
+                                  spacing: 8,
+                                  crossAxisAlignment: WrapCrossAlignment.center,
                                   children: [
-                                    const Text('Google Cloud Firestore', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                                    const SizedBox(width: 8),
+                                    const Text('PocketBase Cloud Sync', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
                                     Container(
                                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                                       decoration: BoxDecoration(
-                                        color: Colors.green.withValues(alpha: 0.15),
+                                        color: badgeColor.withValues(alpha: 0.15),
                                         borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(color: Colors.green.withValues(alpha: 0.4)),
+                                        border: Border.all(color: badgeColor.withValues(alpha: 0.4)),
                                       ),
                                       child: Text(
-                                        syncStatus.value?.displayName ?? 'Cloud Synced',
-                                        style: const TextStyle(fontSize: 10, color: Colors.green, fontWeight: FontWeight.bold),
+                                        syncStatus.displayName,
+                                        style: TextStyle(fontSize: 10, color: badgeColor, fontWeight: FontWeight.bold),
                                       ),
                                     ),
                                   ],
                                 ),
-                                Text('Project: ${dbService.firebaseProjectId} • Two-way real-time replication', style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                                Text(
+                                  'Server: ${dbService.serverUrl} • Drift SQLite + Realtime SSE',
+                                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                ),
                               ],
                             ),
                           ),
+                          if (!kIsWeb) ...[
+                            TextButton(
+                              onPressed: () => _showServerUrlDialog(context, ref),
+                              child: const Text('Server', style: TextStyle(fontSize: 11)),
+                            ),
+                          ],
                           ElevatedButton(
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.primary,
@@ -267,11 +378,15 @@ class SettingsScreen extends ConsumerWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  isConnected ? 'Google Account (${accounts.google!.email})' : 'Google Account (Calendar & Gmail)',
+                                  isConnected
+                                      ? 'Google Account (${accounts.google!.email.isNotEmpty ? accounts.google!.email : "Connected"})'
+                                      : 'Google Account (Calendar & Gmail)',
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                                 ),
                                 Text(
-                                  isConnected ? 'Syncing Google Calendar events and Gmail task AI' : 'Not connected. Connect to sync Google Calendar and Gmail.',
+                                  isConnected
+                                      ? 'Syncing Google Calendar events and Gmail task AI on server'
+                                      : 'Not connected. Connect via OAuth to sync Google Calendar and Gmail.',
                                   style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
                                 ),
                               ],
@@ -287,7 +402,7 @@ class SettingsScreen extends ConsumerWidget {
                               if (isConnected) {
                                 ref.read(connectedAccountsProvider.notifier).disconnectGoogle();
                               } else {
-                                ref.read(connectedAccountsProvider.notifier).connectGoogle(email: 'user@gmail.com');
+                                _connectIntegration(context, ref, 'google');
                               }
                             },
                             child: Text(isConnected ? 'Disconnect' : 'Connect'),
@@ -319,11 +434,15 @@ class SettingsScreen extends ConsumerWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  isConnected ? 'Microsoft 365 (${accounts.outlook!.email})' : 'Microsoft 365 / Outlook Calendar',
+                                  isConnected
+                                      ? 'Microsoft 365 (${accounts.outlook!.email.isNotEmpty ? accounts.outlook!.email : "Connected"})'
+                                      : 'Microsoft 365 / Outlook Calendar',
                                   style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                                 ),
                                 Text(
-                                  isConnected ? 'Syncing Outlook Calendar events via Microsoft Graph' : 'Not connected. Connect to sync work meetings and prep tasks.',
+                                  isConnected
+                                      ? 'Syncing Outlook Calendar events via Microsoft Graph'
+                                      : 'Not connected. Connect via OAuth to sync Outlook meetings.',
                                   style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
                                 ),
                               ],
@@ -339,7 +458,7 @@ class SettingsScreen extends ConsumerWidget {
                               if (isConnected) {
                                 ref.read(connectedAccountsProvider.notifier).disconnectOutlook();
                               } else {
-                                ref.read(connectedAccountsProvider.notifier).connectOutlook(email: 'user@outlook.com');
+                                _connectIntegration(context, ref, 'microsoft');
                               }
                             },
                             child: Text(isConnected ? 'Disconnect' : 'Connect'),

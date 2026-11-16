@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/services/calendar_integration_service.dart';
 import '../data/services/email_integration_service.dart';
+import 'auth_state.dart';
 
 final calendarIntegrationServiceProvider = Provider<CalendarIntegrationService>((ref) {
   throw UnimplementedError('calendarIntegrationServiceProvider must be initialized');
@@ -14,94 +15,94 @@ final emailIntegrationServiceProvider = Provider<EmailIntegrationService>((ref) 
 class ConnectedAccountsState {
   final ConnectedAccountInfo? google;
   final ConnectedAccountInfo? outlook;
-  final bool isGmailConnected;
+  final bool googleConfigured;
+  final bool outlookConfigured;
+  final bool isLoading;
 
   const ConnectedAccountsState({
     this.google,
     this.outlook,
-    this.isGmailConnected = false,
+    this.googleConfigured = false,
+    this.outlookConfigured = false,
+    this.isLoading = false,
   });
+
+  bool get isGmailConnected => google?.isConnected == true;
 
   ConnectedAccountsState copyWith({
     ConnectedAccountInfo? google,
+    bool clearGoogle = false,
     ConnectedAccountInfo? outlook,
-    bool? isGmailConnected,
+    bool clearOutlook = false,
+    bool? googleConfigured,
+    bool? outlookConfigured,
+    bool? isLoading,
   }) =>
       ConnectedAccountsState(
-        google: google ?? this.google,
-        outlook: outlook ?? this.outlook,
-        isGmailConnected: isGmailConnected ?? this.isGmailConnected,
+        google: clearGoogle ? null : (google ?? this.google),
+        outlook: clearOutlook ? null : (outlook ?? this.outlook),
+        googleConfigured: googleConfigured ?? this.googleConfigured,
+        outlookConfigured: outlookConfigured ?? this.outlookConfigured,
+        isLoading: isLoading ?? this.isLoading,
       );
 }
 
 class ConnectedAccountsNotifier extends Notifier<ConnectedAccountsState> {
   @override
   ConnectedAccountsState build() {
-    final calService = ref.watch(calendarIntegrationServiceProvider);
-    final emailService = ref.watch(emailIntegrationServiceProvider);
-    return ConnectedAccountsState(
-      google: calService.getGoogleAccount(),
-      outlook: calService.getOutlookAccount(),
-      isGmailConnected: emailService.isGmailConnected(),
+    final user = ref.watch(authProvider);
+    ref.watch(cloudDataRevisionProvider);
+    if (user != null) {
+      Future.microtask(refreshStatus);
+    }
+    return const ConnectedAccountsState();
+  }
+
+  Future<void> refreshStatus() async {
+    final user = ref.read(authProvider);
+    if (user == null) {
+      state = const ConnectedAccountsState();
+      return;
+    }
+    state = state.copyWith(isLoading: true);
+    final calService = ref.read(calendarIntegrationServiceProvider);
+    final snapshot = await calService.fetchConnectionStatus();
+    state = ConnectedAccountsState(
+      google: snapshot.google,
+      outlook: snapshot.microsoft,
+      googleConfigured: snapshot.googleConfigured,
+      outlookConfigured: snapshot.microsoftConfigured,
+      isLoading: false,
     );
   }
 
-  Future<void> connectGoogle({required String email, String? accessToken, String? displayName}) async {
+  Future<void> connectProvider(String provider) async {
     final calService = ref.read(calendarIntegrationServiceProvider);
-    final emailService = ref.read(emailIntegrationServiceProvider);
-    await calService.connectGoogleAccount(email: email, accessToken: accessToken, displayName: displayName);
-    await emailService.connectGmail(email: email, accessToken: accessToken);
-
-    state = ConnectedAccountsState(
-      google: calService.getGoogleAccount(),
-      outlook: calService.getOutlookAccount(),
-      isGmailConnected: true,
-    );
-
-    // Trigger calendar refresh
-    ref.read(externalEventsProvider.notifier).refreshEvents();
+    await calService.launchProviderOAuth(provider);
   }
 
-  Future<void> connectOutlook({required String email, String? accessToken, String? displayName}) async {
+  Future<void> syncNow() async {
+    final user = ref.read(authProvider);
+    if (user == null) return;
     final calService = ref.read(calendarIntegrationServiceProvider);
-    await calService.connectOutlookAccount(email: email, accessToken: accessToken, displayName: displayName);
-
-    state = ConnectedAccountsState(
-      google: calService.getGoogleAccount(),
-      outlook: calService.getOutlookAccount(),
-      isGmailConnected: state.isGmailConnected,
-    );
-
-    // Trigger calendar refresh
-    ref.read(externalEventsProvider.notifier).refreshEvents();
+    await calService.triggerServerSync();
+    await ref.read(databaseServiceProvider).performCloudSync(userId: user.id);
+    await refreshStatus();
+    await ref.read(externalEventsProvider.notifier).refreshEvents();
   }
 
   Future<void> disconnectGoogle() async {
     final calService = ref.read(calendarIntegrationServiceProvider);
-    final emailService = ref.read(emailIntegrationServiceProvider);
     await calService.disconnectAccount('google');
-    await emailService.disconnectGmail();
-
-    state = ConnectedAccountsState(
-      google: null,
-      outlook: calService.getOutlookAccount(),
-      isGmailConnected: false,
-    );
-
-    ref.read(externalEventsProvider.notifier).refreshEvents();
+    await refreshStatus();
+    await ref.read(externalEventsProvider.notifier).refreshEvents();
   }
 
   Future<void> disconnectOutlook() async {
     final calService = ref.read(calendarIntegrationServiceProvider);
     await calService.disconnectAccount('microsoft');
-
-    state = ConnectedAccountsState(
-      google: calService.getGoogleAccount(),
-      outlook: null,
-      isGmailConnected: state.isGmailConnected,
-    );
-
-    ref.read(externalEventsProvider.notifier).refreshEvents();
+    await refreshStatus();
+    await ref.read(externalEventsProvider.notifier).refreshEvents();
   }
 }
 
@@ -113,25 +114,38 @@ final connectedAccountsProvider = NotifierProvider<ConnectedAccountsNotifier, Co
 class ExternalEventsNotifier extends Notifier<AsyncValue<List<ExternalCalendarEvent>>> {
   @override
   AsyncValue<List<ExternalCalendarEvent>> build() {
-    refreshEvents();
+    final user = ref.watch(authProvider);
+    ref.watch(cloudDataRevisionProvider);
+    if (user == null) {
+      return const AsyncValue.data([]);
+    }
+    Future.microtask(refreshEvents);
     return const AsyncValue.loading();
   }
 
   Future<void> refreshEvents() async {
-    state = const AsyncValue.loading();
+    final user = ref.read(authProvider);
+    if (user == null) {
+      state = const AsyncValue.data([]);
+      return;
+    }
     try {
       final calService = ref.read(calendarIntegrationServiceProvider);
-      final events = await calService.fetchAllCalendarEvents();
+      final events = await calService.fetchAllCalendarEvents(userId: user.id);
       state = AsyncValue.data(events);
     } catch (e, st) {
       state = AsyncValue.error(e, st);
     }
   }
 
-  void markEventLinked(String eventId) {
+  Future<void> markEventLinked(ExternalCalendarEvent event) async {
+    final user = ref.read(authProvider);
+    if (user == null) return;
+    final calService = ref.read(calendarIntegrationServiceProvider);
+    await calService.markEventLinked(user.id, event);
     state.whenData((events) {
       final updated = events.map((ev) {
-        if (ev.id == eventId) {
+        if (ev.id == event.id && ev.source == event.source) {
           return ev.copyWith(hasLinkedTask: true);
         }
         return ev;

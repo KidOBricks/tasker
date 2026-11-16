@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import '../../../domain/models/task_item.dart';
 import '../../../services/gemini_service.dart';
 import '../../../state/app_state.dart';
 import '../../../state/integration_state.dart';
@@ -17,9 +18,14 @@ class IdeasScreen extends ConsumerWidget {
           categoryId: suggestion.categoryId,
           baseImportance: suggestion.importance,
           dueDate: suggestion.suggestedDueDate,
+          emailRef: {
+            if (suggestion.emailId != null) 'emailId': suggestion.emailId,
+            'subject': suggestion.emailSubject,
+            'sender': suggestion.emailSender,
+          },
         );
 
-    ref.read(ideasProvider.notifier).removeSuggestion(suggestion);
+    ref.read(ideasProvider.notifier).acceptSuggestion(suggestion);
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -32,11 +38,28 @@ class IdeasScreen extends ConsumerWidget {
 
   void _editAndAccept(BuildContext context, WidgetRef ref, ExtractedTaskSuggestion suggestion) {
     final categories = ref.read(categoriesProvider);
+    final profile = ref.read(profileProvider);
+    final draftTask = TaskItem(
+      id: 'draft_${DateTime.now().millisecondsSinceEpoch}',
+      userId: profile.uid,
+      title: suggestion.title,
+      description: suggestion.description,
+      categoryId: categories.any((c) => c.id == suggestion.categoryId)
+          ? suggestion.categoryId
+          : (categories.isNotEmpty ? categories.first.id : 'all'),
+      baseImportance: suggestion.importance.clamp(1, profile.numImportanceLevels),
+      effectiveImportance: suggestion.importance.clamp(1, profile.numImportanceLevels),
+      dueDate: suggestion.suggestedDueDate,
+      createdAt: DateTime.now(),
+    );
 
     showDialog(
       context: context,
       builder: (ctx) => AddEditTaskDialog(
+        existingTask: draftTask,
         categories: categories,
+        numImportanceLevels: profile.numImportanceLevels,
+        customLevelNames: profile.levelNames,
         onSave: ({
           required String title,
           String? description,
@@ -54,98 +77,61 @@ class IdeasScreen extends ConsumerWidget {
                 dueDate: dueDate,
                 attachmentPaths: attachmentPaths,
                 recurrenceRule: recurrenceRule,
+                emailRef: {
+                  if (suggestion.emailId != null) 'emailId': suggestion.emailId,
+                  'subject': suggestion.emailSubject,
+                  'sender': suggestion.emailSender,
+                },
               );
-          ref.read(ideasProvider.notifier).removeSuggestion(suggestion);
+          ref.read(ideasProvider.notifier).acceptSuggestion(suggestion);
         },
       ),
     );
   }
 
-  void _showConnectGmailDialog(BuildContext context, WidgetRef ref) {
-    final emailController = TextEditingController(text: 'user@gmail.com');
-    final tokenController = TextEditingController();
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: const Row(
-          children: [
-            Icon(Icons.mark_email_read, color: Colors.redAccent, size: 24),
-            SizedBox(width: 10),
-            Text('Connect Gmail for Inbox AI'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Authorize Tasker to scan incoming unread emails for actionable tasks, deadlines, and commitments.',
-              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: emailController,
-              decoration: const InputDecoration(
-                labelText: 'Google / Gmail Address',
-                prefixIcon: Icon(Icons.email_outlined, size: 18),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: tokenController,
-              decoration: const InputDecoration(
-                labelText: 'OAuth 2.0 Bearer Token (Optional)',
-                hintText: 'Leave empty for simulated cloud connection',
-                prefixIcon: Icon(Icons.key_outlined, size: 18),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent, foregroundColor: Colors.white),
-            onPressed: () async {
-              final email = emailController.text.trim();
-              final token = tokenController.text.trim().isNotEmpty ? tokenController.text.trim() : null;
-              if (email.isNotEmpty) {
-                final nav = Navigator.of(ctx);
-                final messenger = ScaffoldMessenger.of(context);
-                await ref.read(connectedAccountsProvider.notifier).connectGoogle(email: email, accessToken: token);
-                if (ctx.mounted) nav.pop();
-                messenger.showSnackBar(
-                  SnackBar(content: Text('Connected Gmail account: $email! Scanning inbox...')),
-                );
-                if (context.mounted) {
-                  _scanInbox(context, ref);
-                }
-              }
-            },
-            child: const Text('Connect Gmail'),
+  Future<void> _connectGmail(BuildContext context, WidgetRef ref) async {
+    try {
+      await ref.read(connectedAccountsProvider.notifier).connectProvider('google');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Complete Google authorization in your browser, then tap Scan Inbox.'),
+            backgroundColor: AppColors.primary,
           ),
-        ],
-      ),
-    );
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: AppColors.overdue,
+          ),
+        );
+      }
+    }
   }
 
   Future<void> _scanInbox(BuildContext context, WidgetRef ref) async {
-    final emailService = ref.read(emailIntegrationServiceProvider);
-    final emails = await emailService.fetchRecentEmails();
-    final suggestions = emailService.extractTaskSuggestions(emails);
-
-    for (final s in suggestions) {
-      ref.read(ideasProvider.notifier).addSuggestion(s);
-    }
-
-    if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Scanned Gmail inbox: found ${suggestions.length} actionable items!'),
-          backgroundColor: AppColors.inProgress,
-        ),
-      );
+    try {
+      final count = await ref.read(ideasProvider.notifier).scanInbox();
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Scanned Gmail inbox: $count actionable item${count == 1 ? "" : "s"} pending.'),
+            backgroundColor: AppColors.inProgress,
+          ),
+        );
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Inbox scan failed: ${e.toString().replaceFirst('Exception: ', '')}'),
+            backgroundColor: AppColors.overdue,
+          ),
+        );
+      }
     }
   }
 
@@ -162,7 +148,7 @@ class IdeasScreen extends ConsumerWidget {
           IconButton(
             tooltip: 'Scan Gmail Inbox',
             icon: const Icon(Icons.refresh, color: AppColors.primary),
-            onPressed: () => _scanInbox(context, ref),
+            onPressed: isGmailConnected ? () => _scanInbox(context, ref) : () => _connectGmail(context, ref),
           ),
           const SizedBox(width: 8),
         ],
@@ -181,31 +167,39 @@ class IdeasScreen extends ConsumerWidget {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Icon(
-                      Icons.mark_email_read,
-                      color: isGmailConnected ? Colors.redAccent : AppColors.textMuted,
-                      size: 20,
-                    ),
-                    const SizedBox(width: 10),
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          isGmailConnected
-                              ? 'Gmail Inbox AI Active (${accounts.google?.email ?? "Connected"})'
-                              : 'Gmail Inbox AI Disconnected',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.mark_email_read,
+                        color: isGmailConnected ? Colors.redAccent : AppColors.textMuted,
+                        size: 20,
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isGmailConnected
+                                  ? 'Gmail Inbox AI Active (${accounts.google?.email.isNotEmpty == true ? accounts.google!.email : "Connected"})'
+                                  : 'Gmail Inbox AI Disconnected',
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            Text(
+                              isGmailConnected
+                                  ? 'Server-side AI extracts deadlines from unread messages'
+                                  : 'Connect Google account to parse unread emails for tasks',
+                              style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
+                            ),
+                          ],
                         ),
-                        Text(
-                          isGmailConnected ? 'Auto-extracting deadlines from incoming messages' : 'Connect account to parse incoming emails for tasks',
-                          style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                        ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ),
+                const SizedBox(width: 10),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(
                     backgroundColor: isGmailConnected ? AppColors.surface : Colors.redAccent,
@@ -214,7 +208,7 @@ class IdeasScreen extends ConsumerWidget {
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                   ),
-                  onPressed: isGmailConnected ? () => _scanInbox(context, ref) : () => _showConnectGmailDialog(context, ref),
+                  onPressed: isGmailConnected ? () => _scanInbox(context, ref) : () => _connectGmail(context, ref),
                   child: Text(isGmailConnected ? 'Scan Inbox' : 'Connect Gmail'),
                 ),
               ],
@@ -232,12 +226,18 @@ class IdeasScreen extends ConsumerWidget {
                   children: [
                     Icon(Icons.inbox, size: 48, color: AppColors.textMuted.withValues(alpha: 0.5)),
                     const SizedBox(height: 12),
-                    const Text('All email task suggestions have been reviewed!', style: TextStyle(color: AppColors.textMuted)),
+                    Text(
+                      isGmailConnected
+                          ? 'No pending email task suggestions.'
+                          : 'Connect your Gmail account to extract tasks from unread emails.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: AppColors.textMuted),
+                    ),
                     const SizedBox(height: 8),
                     TextButton.icon(
-                      icon: const Icon(Icons.refresh, size: 16),
-                      label: const Text('Scan Inbox for New Tasks'),
-                      onPressed: () => _scanInbox(context, ref),
+                      icon: Icon(isGmailConnected ? Icons.refresh : Icons.link, size: 16),
+                      label: Text(isGmailConnected ? 'Scan Inbox for New Tasks' : 'Connect Gmail Account'),
+                      onPressed: isGmailConnected ? () => _scanInbox(context, ref) : () => _connectGmail(context, ref),
                     ),
                   ],
                 ),
@@ -278,7 +278,7 @@ class IdeasScreen extends ConsumerWidget {
                                 const Icon(Icons.access_time, size: 13, color: AppColors.level2),
                                 const SizedBox(width: 4),
                                 Text(
-                                  'Due ${DateFormat('MMM d, h:mm a').format(suggestion.suggestedDueDate!)}',
+                                  'Due ${DateFormat('MMM d, h:mm a').format(suggestion.suggestedDueDate!.toLocal())}',
                                   style: const TextStyle(fontSize: 11, color: AppColors.level2, fontWeight: FontWeight.w600),
                                 ),
                               ],
@@ -290,9 +290,18 @@ class IdeasScreen extends ConsumerWidget {
                         suggestion.title,
                         style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
                       ),
+                      if (suggestion.emailSubject.isNotEmpty || suggestion.emailSender.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'From: ${suggestion.emailSender}  •  ${suggestion.emailSubject}',
+                          style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
                       const SizedBox(height: 6),
                       Text(
-                        suggestion.description,
+                        suggestion.description.isNotEmpty ? suggestion.description : suggestion.emailSnippet,
                         style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                       ),
                       const SizedBox(height: 14),
@@ -300,7 +309,7 @@ class IdeasScreen extends ConsumerWidget {
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
                           TextButton(
-                            onPressed: () => ref.read(ideasProvider.notifier).removeSuggestion(suggestion),
+                            onPressed: () => ref.read(ideasProvider.notifier).dismissSuggestion(suggestion),
                             child: const Text('Dismiss', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
                           ),
                           const SizedBox(width: 8),
@@ -337,3 +346,4 @@ class IdeasScreen extends ConsumerWidget {
     );
   }
 }
+

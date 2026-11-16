@@ -1,185 +1,117 @@
-import 'dart:convert';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:uuid/uuid.dart';
+import 'package:pocketbase/pocketbase.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../domain/models/user_account.dart';
+import 'server_config.dart';
 
 class AuthService {
-  final SharedPreferences _prefs;
-  static const _usersKey = 'tasker_user_accounts';
-  static const _sessionKey = 'tasker_current_user_id';
-  static const _uuid = Uuid();
+  final PocketBase _pb;
+  final ServerConfig _serverConfig;
 
-  UserAccount? _currentUser;
+  AuthService(this._pb, this._serverConfig);
 
-  AuthService(this._prefs) {
-    _initUsersAndSession();
+  PocketBase get pb => _pb;
+  String get serverUrl => _pb.baseURL;
+
+  bool get isAuthenticated => _pb.authStore.isValid && currentUser != null;
+
+  UserAccount? get currentUser {
+    final record = _pb.authStore.record;
+    if (record == null || !_pb.authStore.isValid) return null;
+    if (record.get<bool>('suspended', false)) return null;
+    return _recordToUser(record);
   }
 
-  UserAccount? get currentUser => _currentUser;
-  bool get isAuthenticated => _currentUser != null;
-
-  void _initUsersAndSession() {
-    // Seed initial demo users if not present
-    if (!_prefs.containsKey(_usersKey)) {
-      final now = DateTime.now();
-      final initialUsers = [
-        UserAccount(
-          id: 'user_admin_1',
-          email: 'admin@tasker.io',
-          displayName: 'Alex Morgan',
-          role: UserRole.admin,
-          isActive: true,
-          createdAt: now.subtract(const Duration(days: 90)),
-          lastLoginAt: now,
-          taskCount: 14,
-        ),
-        UserAccount(
-          id: 'user_2',
-          email: 'sarah.chen@university.edu',
-          displayName: 'Sarah Chen',
-          role: UserRole.user,
-          isActive: true,
-          createdAt: now.subtract(const Duration(days: 45)),
-          lastLoginAt: now.subtract(const Duration(days: 1)),
-          taskCount: 8,
-        ),
-        UserAccount(
-          id: 'user_3',
-          email: 'marcus.vance@acme-corp.com',
-          displayName: 'Marcus Vance',
-          role: UserRole.user,
-          isActive: true,
-          createdAt: now.subtract(const Duration(days: 20)),
-          lastLoginAt: now.subtract(const Duration(days: 3)),
-          taskCount: 5,
-        ),
-      ];
-      _saveUsersList(initialUsers);
-    }
-
-    // Restore active session
-    final savedUserId = _prefs.getString(_sessionKey);
-    final allUsers = getAllUsers();
-    if (savedUserId != null) {
-      _currentUser = allUsers.firstWhere(
-        (u) => u.id == savedUserId,
-        orElse: () => allUsers.first,
-      );
-    } else {
-      // Default initial session is Alex Morgan (Admin)
-      _currentUser = allUsers.first;
-      _prefs.setString(_sessionKey, _currentUser!.id);
-    }
-  }
-
-  List<UserAccount> getAllUsers() {
-    final raw = _prefs.getString(_usersKey);
-    if (raw == null || raw.isEmpty) return [];
-    try {
-      final list = json.decode(raw) as List;
-      return list.map((item) => UserAccount.fromMap(Map<String, dynamic>.from(item))).toList();
-    } catch (_) {
-      return [];
-    }
-  }
-
-  Future<void> _saveUsersList(List<UserAccount> users) async {
-    final raw = json.encode(users.map((u) => u.toMap()).toList());
-    await _prefs.setString(_usersKey, raw);
+  Future<void> setServerUrl(String url) async {
+    await _serverConfig.setServerUrl(url);
+    _pb.baseURL = _serverConfig.serverUrl;
   }
 
   Future<UserAccount> signIn(String email, String password) async {
-    final all = getAllUsers();
-    final user = all.firstWhere(
-      (u) => u.email.toLowerCase() == email.trim().toLowerCase(),
-      orElse: () => throw Exception('User not found with email "$email"'),
-    );
-
+    final authData = await _pb.collection('users').authWithPassword(
+          email.trim(),
+          password,
+        );
+    final user = _recordToUser(authData.record);
     if (!user.isActive) {
+      await signOut();
       throw Exception('Account has been suspended by an administrator.');
     }
-
-    final updated = user.copyWith(lastLoginAt: DateTime.now());
-    await _updateUserInList(updated);
-    _currentUser = updated;
-    await _prefs.setString(_sessionKey, updated.id);
-    return updated;
+    return user;
   }
 
-  Future<UserAccount> signUp(String email, String password, String displayName) async {
-    final all = getAllUsers();
-    final existing = all.any((u) => u.email.toLowerCase() == email.trim().toLowerCase());
-    if (existing) {
-      throw Exception('An account with this email address already exists.');
+  Future<UserAccount> signInWithOAuth2(
+    String provider, {
+    Future<void> Function(Uri url)? launchCallback,
+  }) async {
+    final launcher = launchCallback ??
+        (Uri url) async {
+          await launchUrl(url, mode: LaunchMode.externalApplication);
+        };
+
+    final authData = await _pb.collection('users').authWithOAuth2(
+          provider,
+          launcher,
+        );
+    final user = _recordToUser(authData.record);
+    if (!user.isActive) {
+      await signOut();
+      throw Exception('Account has been suspended by an administrator.');
     }
+    return user;
+  }
 
-    final now = DateTime.now();
-    final newUser = UserAccount(
-      id: 'user_${_uuid.v4().substring(0, 8)}',
-      email: email.trim(),
-      displayName: displayName.trim().isNotEmpty ? displayName.trim() : email.split('@').first,
-      role: all.isEmpty ? UserRole.admin : UserRole.user, // first user is admin
-      isActive: true,
-      createdAt: now,
-      lastLoginAt: now,
-      taskCount: 0,
+  Future<UserAccount?> refreshSessionIfPossible() async {
+    if (!_pb.authStore.isValid) return null;
+    try {
+      final refreshed = await _pb.collection('users').authRefresh();
+      final user = _recordToUser(refreshed.record);
+      if (!user.isActive) {
+        await signOut();
+        return null;
+      }
+      return user;
+    } on ClientException catch (e) {
+      if (e.statusCode == 401 || e.statusCode == 403) {
+        await signOut();
+        return null;
+      }
+      return currentUser; // Offline or transient server error: keep cached session
+    } catch (_) {
+      return currentUser;
+    }
+  }
+
+  Future<UserAccount> updateDisplayName(String displayName) async {
+    final active = currentUser;
+    if (active == null) {
+      throw Exception('Not signed in.');
+    }
+    final updated = await _pb.collection('users').update(
+      active.id,
+      body: {'displayName': displayName.trim()},
     );
-
-    final updatedList = [...all, newUser];
-    await _saveUsersList(updatedList);
-    _currentUser = newUser;
-    await _prefs.setString(_sessionKey, newUser.id);
-    return newUser;
+    _pb.authStore.save(_pb.authStore.token, updated);
+    return _recordToUser(updated);
   }
 
   Future<void> signOut() async {
-    _currentUser = null;
-    await _prefs.remove(_sessionKey);
+    _pb.authStore.clear();
   }
 
-  Future<void> sendPasswordReset(String email) async {
-    final all = getAllUsers();
-    final exists = all.any((u) => u.email.toLowerCase() == email.trim().toLowerCase());
-    if (!exists) {
-      throw Exception('No account found for email "$email"');
-    }
-    // Simulation: in production, calls FirebaseAuth.instance.sendPasswordResetEmail(email)
-  }
+  static UserAccount _recordToUser(RecordModel record) {
+    final email = record.get<String>('email', '');
+    final name = record.get<String>('displayName', '').trim();
+    final created = DateTime.tryParse(record.get<String>('created', '')) ?? DateTime.now();
+    final updated = DateTime.tryParse(record.get<String>('updated', '')) ?? DateTime.now();
 
-  // --- Admin User Management Methods ---
-
-  Future<void> updateUserRole(String userId, UserRole newRole) async {
-    final all = getAllUsers();
-    final user = all.firstWhere((u) => u.id == userId);
-    final updated = user.copyWith(role: newRole);
-    await _updateUserInList(updated);
-    if (_currentUser?.id == userId) {
-      _currentUser = updated;
-    }
-  }
-
-  Future<void> toggleUserStatus(String userId) async {
-    final all = getAllUsers();
-    final user = all.firstWhere((u) => u.id == userId);
-    final updated = user.copyWith(isActive: !user.isActive);
-    await _updateUserInList(updated);
-    if (_currentUser?.id == userId) {
-      _currentUser = updated;
-    }
-  }
-
-  Future<void> deleteUser(String userId) async {
-    if (_currentUser?.id == userId) {
-      throw Exception('Cannot delete your own active administrator account.');
-    }
-    final all = getAllUsers();
-    final updated = all.where((u) => u.id != userId).toList();
-    await _saveUsersList(updated);
-  }
-
-  Future<void> _updateUserInList(UserAccount updatedUser) async {
-    final all = getAllUsers();
-    final list = all.map((u) => u.id == updatedUser.id ? updatedUser : u).toList();
-    await _saveUsersList(list);
+    return UserAccount(
+      id: record.id,
+      email: email,
+      displayName: name.isNotEmpty ? name : (email.contains('@') ? email.split('@').first : 'User'),
+      role: UserRole.fromString(record.get<String>('role', 'user')),
+      isActive: !record.get<bool>('suspended', false),
+      createdAt: created,
+      lastLoginAt: updated,
+    );
   }
 }

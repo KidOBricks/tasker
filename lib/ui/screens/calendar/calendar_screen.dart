@@ -14,88 +14,59 @@ class CalendarScreen extends ConsumerStatefulWidget {
 }
 
 class _CalendarScreenState extends ConsumerState<CalendarScreen> {
-  void _showConnectDialog(BuildContext context, String provider) {
-    final emailController = TextEditingController(
-      text: provider == 'google' ? 'user@gmail.com' : 'user@outlook.com',
-    );
-    final tokenController = TextEditingController();
+  bool _isSyncing = false;
 
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppColors.surface,
-        title: Row(
-          children: [
-            Icon(
-              provider == 'google' ? Icons.calendar_month : Icons.calendar_today,
-              color: provider == 'google' ? Colors.blue : Colors.cyan,
-              size: 24,
-            ),
-            const SizedBox(width: 10),
-            Text(provider == 'google' ? 'Connect Google Calendar' : 'Connect Outlook Calendar'),
-          ],
-        ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Link your personal ${provider == "google" ? "Google Calendar" : "Microsoft Outlook"} to sync upcoming meetings and automatically generate preparation tasks.',
-              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: emailController,
-              decoration: InputDecoration(
-                labelText: 'Account Email',
-                hintText: provider == 'google' ? 'you@gmail.com' : 'you@outlook.com',
-                prefixIcon: const Icon(Icons.email_outlined, size: 18),
-              ),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: tokenController,
-              decoration: const InputDecoration(
-                labelText: 'OAuth 2.0 Bearer Token (Optional)',
-                hintText: 'Leave empty for simulated cloud connection',
-                prefixIcon: Icon(Icons.key_outlined, size: 18),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
+  Future<void> _connectProvider(String provider) async {
+    final label = provider == 'google' ? 'Google Calendar' : 'Outlook Calendar';
+    try {
+      await ref.read(connectedAccountsProvider.notifier).connectProvider(provider);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Complete $label authorization in your browser, then return here.'),
+            backgroundColor: AppColors.primary,
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: provider == 'google' ? Colors.blue : Colors.cyan,
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () {
-              final email = emailController.text.trim();
-              final token = tokenController.text.trim().isNotEmpty ? tokenController.text.trim() : null;
-              if (email.isNotEmpty) {
-                if (provider == 'google') {
-                  ref.read(connectedAccountsProvider.notifier).connectGoogle(email: email, accessToken: token);
-                } else {
-                  ref.read(connectedAccountsProvider.notifier).connectOutlook(email: email, accessToken: token);
-                }
-                Navigator.of(ctx).pop();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Connected ${provider == "google" ? "Google" : "Outlook"} account: $email!'),
-                    backgroundColor: AppColors.inProgress,
-                  ),
-                );
-              }
-            },
-            child: const Text('Connect Account'),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: AppColors.overdue,
           ),
-        ],
-      ),
-    );
+        );
+      }
+    }
+  }
+
+  Future<void> _syncNow() async {
+    if (_isSyncing) return;
+    setState(() => _isSyncing = true);
+    try {
+      await ref.read(connectedAccountsProvider.notifier).syncNow();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Calendar events synced with server.'),
+            duration: Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Sync failed: ${e.toString().replaceFirst('Exception: ', '')}'),
+            backgroundColor: AppColors.overdue,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSyncing = false);
+      }
+    }
   }
 
   void _showEventPrepSheet(ExternalCalendarEvent event) {
@@ -134,14 +105,15 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
             ),
             const SizedBox(height: 6),
             Text(
-              '${DateFormat('EEEE, MMM d  •  h:mm a').format(event.startTime)} - ${DateFormat('h:mm a').format(event.endTime)}',
+              '${DateFormat('EEEE, MMM d  •  h:mm a').format(event.startTime.toLocal())} - ${DateFormat('h:mm a').format(event.endTime.toLocal())}',
               style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
             ),
-            Text(
-              'Location: ${event.location}',
-              style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
-            ),
-            if (event.meetingUrl != null) ...[
+            if (event.location.isNotEmpty)
+              Text(
+                'Location: ${event.location}',
+                style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+              ),
+            if (event.meetingUrl != null && event.meetingUrl!.isNotEmpty) ...[
               const SizedBox(height: 4),
               Text(
                 'Meeting link: ${event.meetingUrl}',
@@ -172,7 +144,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   Text('Task Title: "Prepare notes & slides for ${event.title}"', style: const TextStyle(fontSize: 13, color: AppColors.textPrimary)),
                   const SizedBox(height: 4),
                   Text(
-                    'Suggested Deadline: ${DateFormat('h:mm a (2h prior)').format(suggestedPrepDue)}',
+                    'Suggested Deadline: ${DateFormat('h:mm a (2h prior)').format(suggestedPrepDue.toLocal())}',
                     style: const TextStyle(fontSize: 12, color: AppColors.level2, fontWeight: FontWeight.w600),
                   ),
                 ],
@@ -198,12 +170,14 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                   onPressed: () {
                     ref.read(tasksProvider.notifier).addTask(
                           title: 'Prep: ${event.title}',
-                          description: 'Action items for ${event.title} (${event.location}).\nLink: ${event.meetingUrl ?? "N/A"}',
+                          description:
+                              'Action items for ${event.title}${event.location.isNotEmpty ? " (${event.location})" : ""}.\nLink: ${event.meetingUrl ?? "N/A"}',
                           categoryId: 'work',
                           baseImportance: 3,
                           dueDate: suggestedPrepDue,
+                          calendarEventId: event.id,
                         );
-                    ref.read(externalEventsProvider.notifier).markEventLinked(event.id);
+                    ref.read(externalEventsProvider.notifier).markEventLinked(event);
                     Navigator.of(ctx).pop();
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(content: Text('Created preparation task for "${event.title}"!')),
@@ -222,21 +196,25 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
   Widget build(BuildContext context) {
     final accounts = ref.watch(connectedAccountsProvider);
     final eventsAsync = ref.watch(externalEventsProvider);
+    final hasAnyConnected = accounts.google != null || accounts.outlook != null;
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Calendar & Integrations', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
         actions: [
-          IconButton(
-            tooltip: 'Sync Calendars Now',
-            icon: const Icon(Icons.sync, color: AppColors.primary),
-            onPressed: () {
-              ref.read(externalEventsProvider.notifier).refreshEvents();
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Refreshing Google Calendar & Outlook events...'), duration: Duration(seconds: 1)),
-              );
-            },
-          ),
+          if (_isSyncing)
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 14),
+              child: Center(
+                child: SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
+              ),
+            )
+          else
+            IconButton(
+              tooltip: 'Sync Calendars Now',
+              icon: const Icon(Icons.sync, color: AppColors.primary),
+              onPressed: _syncNow,
+            ),
           const SizedBox(width: 8),
         ],
       ),
@@ -277,7 +255,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                         size: 16,
                       ),
                       label: Text(
-                        accounts.google != null ? 'Google (${accounts.google!.email})' : '+ Connect Google Calendar',
+                        accounts.google != null
+                            ? 'Google (${accounts.google!.email.isNotEmpty ? accounts.google!.email : "Connected"})'
+                            : '+ Connect Google Calendar',
                         style: TextStyle(
                           fontSize: 12,
                           color: accounts.google != null ? Colors.white : AppColors.textSecondary,
@@ -290,7 +270,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                         if (accounts.google != null) {
                           _confirmDisconnect(context, 'google', accounts.google!.email);
                         } else {
-                          _showConnectDialog(context, 'google');
+                          _connectProvider('google');
                         }
                       },
                     ),
@@ -303,7 +283,9 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                         size: 16,
                       ),
                       label: Text(
-                        accounts.outlook != null ? 'Outlook (${accounts.outlook!.email})' : '+ Connect Outlook Calendar',
+                        accounts.outlook != null
+                            ? 'Outlook (${accounts.outlook!.email.isNotEmpty ? accounts.outlook!.email : "Connected"})'
+                            : '+ Connect Outlook Calendar',
                         style: TextStyle(
                           fontSize: 12,
                           color: accounts.outlook != null ? Colors.white : AppColors.textSecondary,
@@ -316,7 +298,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                         if (accounts.outlook != null) {
                           _confirmDisconnect(context, 'microsoft', accounts.outlook!.email);
                         } else {
-                          _showConnectDialog(context, 'microsoft');
+                          _connectProvider('microsoft');
                         }
                       },
                     ),
@@ -347,7 +329,6 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Proactive Suggestion Carousel Feed
                   if (unlinkedEvents.isNotEmpty) ...[
                     const Row(
                       children: [
@@ -399,7 +380,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                                   ],
                                 ),
                                 Text(
-                                  DateFormat('EEE, MMM d  •  h:mm a').format(ev.startTime),
+                                  DateFormat('EEE, MMM d  •  h:mm a').format(ev.startTime.toLocal()),
                                   style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
                                 ),
                                 Align(
@@ -420,14 +401,21 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                     const SizedBox(height: 24),
                   ],
 
-                  // Interactive Agenda Feed
                   const Text('Agenda Feed', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
                   const SizedBox(height: 10),
 
                   if (events.isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 30),
-                      child: Center(child: Text('No upcoming events found.', style: TextStyle(color: AppColors.textMuted))),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 30),
+                      child: Center(
+                        child: Text(
+                          hasAnyConnected
+                              ? 'No upcoming events synced yet. Tap Sync to fetch from your calendar.'
+                              : 'Connect Google Calendar or Outlook above to sync your upcoming meetings.',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: AppColors.textMuted),
+                        ),
+                      ),
                     )
                   else
                     ...events.map((ev) {
@@ -448,7 +436,7 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
                           ),
                           title: Text(ev.title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
                           subtitle: Text(
-                            '${DateFormat('EEE, MMM d • h:mm a').format(ev.startTime)}  (${ev.location})',
+                            '${DateFormat('EEE, MMM d • h:mm a').format(ev.startTime.toLocal())}${ev.location.isNotEmpty ? "  (${ev.location})" : ""}',
                             style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
                           ),
                           trailing: ev.hasLinkedTask
@@ -496,3 +484,4 @@ class _CalendarScreenState extends ConsumerState<CalendarScreen> {
     );
   }
 }
+

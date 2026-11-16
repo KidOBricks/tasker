@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../theme/app_theme.dart';
@@ -7,8 +6,8 @@ import '../screens/calendar/calendar_screen.dart';
 import '../screens/progress/progress_screen.dart';
 import '../screens/ideas/ideas_screen.dart';
 import '../screens/settings/settings_screen.dart';
-import '../screens/admin/admin_console_screen.dart';
 import '../screens/auth/auth_screen.dart';
+import '../../data/services/database_service.dart';
 import '../../state/app_state.dart';
 import '../../state/auth_state.dart';
 
@@ -31,7 +30,7 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Sign Out'),
-        content: const Text('Are you sure you want to sign out? Your tasks are backed up in the cloud.'),
+        content: const Text('Are you sure you want to sign out? Your local SQLite cache stays encrypted until the next sign-in.'),
         actions: [
           TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
           ElevatedButton(
@@ -47,30 +46,52 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
     );
   }
 
+  static Color _syncColor(SyncStatus status) {
+    switch (status) {
+      case SyncStatus.synced:
+        return AppColors.inProgress;
+      case SyncStatus.syncing:
+        return AppColors.primary;
+      case SyncStatus.offline:
+        return AppColors.textMuted;
+      case SyncStatus.error:
+        return AppColors.overdue;
+    }
+  }
+
+  static IconData _syncIcon(SyncStatus status) {
+    switch (status) {
+      case SyncStatus.synced:
+        return Icons.cloud_done;
+      case SyncStatus.syncing:
+        return Icons.cloud_sync;
+      case SyncStatus.offline:
+        return Icons.cloud_off;
+      case SyncStatus.error:
+        return Icons.cloud_off;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUser = ref.watch(authProvider);
 
-    // If user is unauthenticated, show AuthScreen (Sign in / Sign up)
     if (currentUser == null) {
       return const AuthScreen();
     }
 
     final sectioned = ref.watch(sectionedTasksProvider);
+    final syncStatus = ref.watch(syncStatusProvider).value ?? SyncStatus.offline;
     final overdueCount = sectioned.overdueTasks.length;
     final isDesktop = MediaQuery.of(context).size.width >= 800;
     final isAdmin = currentUser.isAdmin;
-    // Admin panel is restricted to the Web App for enterprise management;
-    // Native Windows & Android clients are clean regular user apps.
-    final showAdminTab = kIsWeb && isAdmin;
 
-    final screens = [
-      const HomeScreen(),
-      const CalendarScreen(),
-      const ProgressScreen(),
-      const IdeasScreen(),
-      const SettingsScreen(),
-      if (showAdminTab) const AdminConsoleScreen(),
+    const screens = [
+      HomeScreen(),
+      CalendarScreen(),
+      ProgressScreen(),
+      IdeasScreen(),
+      SettingsScreen(),
     ];
 
     if (_selectedIndex >= screens.length) {
@@ -78,11 +99,9 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
     }
 
     if (isDesktop) {
-      // Desktop Multi-Pane Layout (Windows & Linux)
       return Scaffold(
         body: Row(
           children: [
-            // Left Navigation Rail
             NavigationRail(
               backgroundColor: AppColors.surface,
               selectedIndex: _selectedIndex,
@@ -92,7 +111,6 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
                 padding: const EdgeInsets.symmetric(vertical: 10),
                 child: Column(
                   children: [
-                    // User Profile Avatar & Name (Clicking launches Settings/Profile)
                     Tooltip(
                       message: 'Click to open Profile & Settings',
                       child: InkWell(
@@ -115,7 +133,7 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
                                 radius: 18,
                                 backgroundColor: isAdmin ? AppColors.primary : const Color(0xFF64748B),
                                 child: Text(
-                                  currentUser.displayName.isNotEmpty ? currentUser.displayName[0] : 'U',
+                                  currentUser.displayName.isNotEmpty ? currentUser.displayName[0].toUpperCase() : 'U',
                                   style: const TextStyle(
                                     fontWeight: FontWeight.bold,
                                     color: Colors.white,
@@ -154,7 +172,6 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    // Sign out icon
                     IconButton(
                       tooltip: 'Sign Out',
                       icon: const Icon(Icons.logout, size: 16, color: AppColors.textMuted),
@@ -195,17 +212,9 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
                   selectedIcon: Icon(Icons.settings, color: AppColors.primary),
                   label: Text('Profile'),
                 ),
-                if (showAdminTab)
-                  const NavigationRailDestination(
-                    icon: Icon(Icons.admin_panel_settings_outlined),
-                    selectedIcon: Icon(Icons.admin_panel_settings, color: AppColors.primary),
-                    label: Text('Admin'),
-                  ),
               ],
             ),
             const VerticalDivider(width: 1, color: AppColors.border),
-
-            // Main Active Screen Content
             Expanded(
               child: screens[_selectedIndex],
             ),
@@ -214,7 +223,7 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
       );
     }
 
-    // Mobile Portrait Layout (Android)
+    final statusColor = _syncColor(syncStatus);
     return Scaffold(
       appBar: AppBar(
         title: Row(
@@ -233,17 +242,15 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
           ],
         ),
         actions: [
-          // Cloud Sync Indicator
-          const Row(
+          Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.cloud_done, size: 14, color: AppColors.inProgress),
-              SizedBox(width: 4),
-              Text('Cloud Synced', style: TextStyle(fontSize: 10, color: AppColors.inProgress)),
+              Icon(_syncIcon(syncStatus), size: 14, color: statusColor),
+              const SizedBox(width: 4),
+              Text(syncStatus.displayName, style: TextStyle(fontSize: 10, color: statusColor)),
             ],
           ),
           const SizedBox(width: 10),
-          // User Avatar on Mobile Top Bar (Clicking launches Profile/Settings)
           Tooltip(
             message: 'Profile & Settings',
             child: InkWell(
@@ -257,7 +264,7 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
                       radius: 14,
                       backgroundColor: isAdmin ? AppColors.primary : const Color(0xFF64748B),
                       child: Text(
-                        currentUser.displayName.isNotEmpty ? currentUser.displayName[0] : 'U',
+                        currentUser.displayName.isNotEmpty ? currentUser.displayName[0].toUpperCase() : 'U',
                         style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
                       ),
                     ),
@@ -314,14 +321,9 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
             selectedIcon: Icon(Icons.person, color: AppColors.primary),
             label: 'Profile',
           ),
-          if (showAdminTab)
-            const NavigationDestination(
-              icon: Icon(Icons.admin_panel_settings_outlined),
-              selectedIcon: Icon(Icons.admin_panel_settings, color: AppColors.primary),
-              label: 'Admin',
-            ),
         ],
       ),
     );
   }
 }
+

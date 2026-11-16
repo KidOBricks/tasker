@@ -1,7 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../domain/models/user_account.dart';
+import '../../domain/models/user_account.dart';
 import '../data/services/auth_service.dart';
 import '../data/services/database_service.dart';
+import 'app_state.dart';
 
 // --- Services Providers ---
 final authServiceProvider = Provider<AuthService>((ref) {
@@ -17,6 +18,11 @@ final syncStatusProvider = StreamProvider<SyncStatus>((ref) {
   return dbService.syncStatusStream;
 });
 
+final cloudDataRevisionProvider = StreamProvider<String>((ref) {
+  final dbService = ref.watch(databaseServiceProvider);
+  return dbService.dataUpdatedStream;
+});
+
 // --- Auth State ---
 class AuthNotifier extends Notifier<UserAccount?> {
   @override
@@ -26,58 +32,44 @@ class AuthNotifier extends Notifier<UserAccount?> {
 
   Future<void> signIn(String email, String password) async {
     final user = await ref.read(authServiceProvider).signIn(email, password);
-    state = user;
-    await ref.read(databaseServiceProvider).performCloudSync(userId: user.id);
+    await _activateUserSession(user);
   }
 
-  Future<void> signUp(String email, String password, String displayName) async {
-    final user = await ref.read(authServiceProvider).signUp(email, password, displayName);
+  Future<void> signInWithOAuth2(String provider) async {
+    final user = await ref.read(authServiceProvider).signInWithOAuth2(provider);
+    await _activateUserSession(user);
+  }
+
+  Future<void> updateServerUrl(String url) async {
+    await ref.read(authServiceProvider).setServerUrl(url);
+  }
+
+  Future<void> updateDisplayName(String displayName) async {
+    final updated = await ref.read(authServiceProvider).updateDisplayName(displayName);
+    state = updated;
+    await ref.read(profileProvider.notifier).updateSettings(displayName: updated.displayName);
+  }
+
+  Future<void> _activateUserSession(UserAccount user) async {
+    final repo = ref.read(repositoryProvider);
+    await repo.loadForUser(
+      user.id,
+      email: user.email,
+      displayName: user.displayName,
+    );
     state = user;
-    await ref.read(databaseServiceProvider).performCloudSync(userId: user.id);
+
+    final dbService = ref.read(databaseServiceProvider);
+    await dbService.performCloudSync(userId: user.id);
+    await dbService.startRealtimeSync(user.id);
   }
 
   Future<void> signOut() async {
+    await ref.read(databaseServiceProvider).stopRealtimeSync();
     await ref.read(authServiceProvider).signOut();
+    await ref.read(repositoryProvider).loadForUser('');
     state = null;
-  }
-
-  Future<void> switchUser(UserAccount user) async {
-    await signIn(user.email, 'password');
-  }
-
-  Future<void> sendPasswordReset(String email) async {
-    await ref.read(authServiceProvider).sendPasswordReset(email);
   }
 }
 
 final authProvider = NotifierProvider<AuthNotifier, UserAccount?>(AuthNotifier.new);
-
-// --- Admin Users Directory State ---
-class AdminUsersNotifier extends Notifier<List<UserAccount>> {
-  @override
-  List<UserAccount> build() {
-    return ref.watch(authServiceProvider).getAllUsers();
-  }
-
-  Future<void> refresh() async {
-    state = ref.read(authServiceProvider).getAllUsers();
-  }
-
-  Future<void> updateUserRole(String userId, UserRole newRole) async {
-    await ref.read(authServiceProvider).updateUserRole(userId, newRole);
-    state = ref.read(authServiceProvider).getAllUsers();
-  }
-
-  Future<void> toggleUserStatus(String userId) async {
-    await ref.read(authServiceProvider).toggleUserStatus(userId);
-    state = ref.read(authServiceProvider).getAllUsers();
-  }
-
-  Future<void> deleteUser(String userId) async {
-    await ref.read(authServiceProvider).deleteUser(userId);
-    state = ref.read(authServiceProvider).getAllUsers();
-  }
-}
-
-final adminUsersProvider =
-    NotifierProvider<AdminUsersNotifier, List<UserAccount>>(AdminUsersNotifier.new);

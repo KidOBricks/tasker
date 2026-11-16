@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:uuid/uuid.dart';
 import '../domain/models/task_item.dart';
@@ -9,6 +10,8 @@ import '../domain/engine/priority_engine.dart';
 import '../domain/engine/recurrence_engine.dart';
 import '../data/repositories/task_repository.dart';
 import '../services/gemini_service.dart';
+import 'auth_state.dart';
+import 'integration_state.dart';
 
 const _uuid = Uuid();
 
@@ -17,14 +20,23 @@ final repositoryProvider = Provider<TaskRepository>((ref) {
   throw UnimplementedError('Initialize repository in main()');
 });
 
+void _triggerBackgroundSync(Ref ref) {
+  final user = ref.read(authProvider);
+  if (user == null) return;
+  unawaited(ref.read(databaseServiceProvider).performCloudSync(userId: user.id));
+}
+
 // --- Profile / Settings State ---
 class ProfileNotifier extends Notifier<UserProfile> {
   @override
   UserProfile build() {
+    ref.watch(authProvider);
+    ref.watch(cloudDataRevisionProvider);
     return ref.watch(repositoryProvider).getProfile();
   }
 
   Future<void> updateSettings({
+    String? displayName,
     int? maxInProgressTasks,
     int? numImportanceLevels,
     Map<int, String>? levelNames,
@@ -53,6 +65,7 @@ class ProfileNotifier extends Notifier<UserProfile> {
     bool? appOpenedToday,
   }) async {
     final updated = state.copyWith(
+      displayName: displayName,
       maxInProgressTasks: maxInProgressTasks,
       numImportanceLevels: numImportanceLevels,
       levelNames: levelNames,
@@ -82,6 +95,7 @@ class ProfileNotifier extends Notifier<UserProfile> {
     );
     state = updated;
     await ref.read(repositoryProvider).saveProfile(updated);
+    _triggerBackgroundSync(ref);
   }
 
   Future<void> updateLevelName(int level, String name) async {
@@ -107,6 +121,7 @@ final profileProvider = NotifierProvider<ProfileNotifier, UserProfile>(ProfileNo
 class TaskHistoryNotifier extends Notifier<List<TaskHistoryItem>> {
   @override
   List<TaskHistoryItem> build() {
+    ref.watch(authProvider);
     return [];
   }
 
@@ -143,6 +158,8 @@ final taskHistoryProvider =
 class CategoriesNotifier extends Notifier<List<CategoryItem>> {
   @override
   List<CategoryItem> build() {
+    ref.watch(authProvider);
+    ref.watch(cloudDataRevisionProvider);
     return ref.watch(repositoryProvider).getCategories();
   }
 
@@ -157,6 +174,7 @@ class CategoriesNotifier extends Notifier<List<CategoryItem>> {
     final updated = [...state, newCat];
     state = updated;
     await ref.read(repositoryProvider).saveCategories(updated);
+    _triggerBackgroundSync(ref);
   }
 }
 
@@ -178,6 +196,8 @@ final activeCategoryTabProvider = NotifierProvider<ActiveCategoryNotifier, Strin
 class RecurrenceRulesNotifier extends Notifier<List<RecurrenceRule>> {
   @override
   List<RecurrenceRule> build() {
+    ref.watch(authProvider);
+    ref.watch(cloudDataRevisionProvider);
     return ref.watch(repositoryProvider).getRecurrenceRules();
   }
 
@@ -185,18 +205,21 @@ class RecurrenceRulesNotifier extends Notifier<List<RecurrenceRule>> {
     final updated = [...state, rule];
     state = updated;
     await ref.read(repositoryProvider).saveRecurrenceRules(updated);
+    _triggerBackgroundSync(ref);
   }
 
   Future<void> updateRule(RecurrenceRule rule) async {
     final updated = state.map((r) => r.id == rule.id ? rule : r).toList();
     state = updated;
     await ref.read(repositoryProvider).saveRecurrenceRules(updated);
+    _triggerBackgroundSync(ref);
   }
 
   Future<void> deleteRule(String ruleId) async {
     final updated = state.where((r) => r.id != ruleId).toList();
     state = updated;
     await ref.read(repositoryProvider).saveRecurrenceRules(updated);
+    _triggerBackgroundSync(ref);
   }
 
   Future<void> toggleActive(String ruleId) async {
@@ -206,6 +229,7 @@ class RecurrenceRulesNotifier extends Notifier<List<RecurrenceRule>> {
     }).toList();
     state = updated;
     await ref.read(repositoryProvider).saveRecurrenceRules(updated);
+    _triggerBackgroundSync(ref);
   }
 }
 
@@ -216,6 +240,8 @@ final recurrenceRulesProvider =
 class TasksNotifier extends Notifier<List<TaskItem>> {
   @override
   List<TaskItem> build() {
+    ref.watch(authProvider);
+    ref.watch(cloudDataRevisionProvider);
     final initial = ref.watch(repositoryProvider).getTasks();
     final profile = ref.watch(profileProvider);
     return initial.map((t) => PriorityEngine.evaluate(t, profile)).toList();
@@ -229,6 +255,8 @@ class TasksNotifier extends Notifier<List<TaskItem>> {
     DateTime? dueDate,
     List<String> attachmentPaths = const [],
     RecurrenceRule? recurrenceRule,
+    String? calendarEventId,
+    Map<String, dynamic>? emailRef,
   }) async {
     final profile = ref.read(profileProvider);
     final now = DateTime.now();
@@ -251,12 +279,15 @@ class TasksNotifier extends Notifier<List<TaskItem>> {
       createdAt: now,
       attachmentPaths: attachmentPaths,
       recurrenceRuleId: ruleId,
+      calendarEventId: calendarEventId,
+      emailRef: emailRef,
     );
 
     final evaluatedTask = PriorityEngine.evaluate(rawTask, profile, currentTime: now);
     final updated = [...state, evaluatedTask];
     state = updated;
     await ref.read(repositoryProvider).saveTasks(updated);
+    _triggerBackgroundSync(ref);
 
     ref.read(taskHistoryProvider.notifier).logAction(
           taskId: evaluatedTask.id,
@@ -275,6 +306,7 @@ class TasksNotifier extends Notifier<List<TaskItem>> {
     final updatedList = state.map((t) => t.id == evaluated.id ? evaluated : t).toList();
     state = updatedList;
     await ref.read(repositoryProvider).saveTasks(updatedList);
+    _triggerBackgroundSync(ref);
 
     ref.read(taskHistoryProvider.notifier).logAction(
           taskId: evaluated.id,
@@ -348,6 +380,7 @@ class TasksNotifier extends Notifier<List<TaskItem>> {
 
       state = updatedList;
       await ref.read(repositoryProvider).saveTasks(updatedList);
+      _triggerBackgroundSync(ref);
 
       ref.read(taskHistoryProvider.notifier).logAction(
             taskId: task.id,
@@ -389,6 +422,7 @@ class TasksNotifier extends Notifier<List<TaskItem>> {
       }
       state = updatedList;
       await ref.read(repositoryProvider).saveTasks(updatedList);
+      _triggerBackgroundSync(ref);
 
       ref.read(taskHistoryProvider.notifier).logAction(
             taskId: task.id,
@@ -413,6 +447,7 @@ class TasksNotifier extends Notifier<List<TaskItem>> {
     final updated = state.where((t) => t.id != taskId).toList();
     state = updated;
     await ref.read(repositoryProvider).saveTasks(updated);
+    _triggerBackgroundSync(ref);
 
     ref.read(taskHistoryProvider.notifier).logAction(
           taskId: task.id,
@@ -437,6 +472,7 @@ class TasksNotifier extends Notifier<List<TaskItem>> {
       final restored = historyItem.previousTaskState!;
       state = [...state, restored];
       await ref.read(repositoryProvider).saveTasks(state);
+      _triggerBackgroundSync(ref);
     } else if (historyItem.previousTaskState != null) {
       // Undo completion, ignore, edit -> Restore previous state
       final restored = historyItem.previousTaskState!;
@@ -446,6 +482,7 @@ class TasksNotifier extends Notifier<List<TaskItem>> {
       }
       state = updatedList;
       await ref.read(repositoryProvider).saveTasks(updatedList);
+      _triggerBackgroundSync(ref);
     }
 
     ref.read(taskHistoryProvider.notifier).removeEntry(historyId);
@@ -507,54 +544,54 @@ final sectionedTasksProvider = Provider<SectionedTasks>((ref) {
 class IdeasNotifier extends Notifier<List<ExtractedTaskSuggestion>> {
   @override
   List<ExtractedTaskSuggestion> build() {
-    final now = DateTime.now();
-    return [
-      ExtractedTaskSuggestion(
-        title: 'Action: Finalize Vendor SOW & Invoicing',
-        description: 'Invoice #4928 attached. Due for review by end of week.',
-        categoryId: 'work',
-        importance: 3,
-        suggestedDueDate: now.add(const Duration(days: 2)),
-        emailSubject: 'Invoice #4928 Due for Review',
-        emailSender: 'billing@cloudvendor.io',
-        emailSnippet: 'Please find attached the monthly statement for software licenses.',
-      ),
-      ExtractedTaskSuggestion(
-        title: 'Confirm Flight Check-in for Seattle Trip',
-        description: 'Flight DL 1492 departs on Friday at 8:15 AM.',
-        categoryId: 'personal',
-        importance: 2,
-        suggestedDueDate: now.add(const Duration(days: 4)),
-        emailSubject: 'Flight Itinerary Confirmation: SEA-SFO',
-        emailSender: 'reservations@delta.com',
-        emailSnippet: 'Your flight is confirmed. Online check-in opens 24h prior.',
-      ),
-      ExtractedTaskSuggestion(
-        title: 'Submit Distributed Systems Lab 3',
-        description: 'Consensus algorithms assignment due on Canvas.',
-        categoryId: 'study',
-        importance: 3,
-        suggestedDueDate: now.add(const Duration(days: 1)),
-        emailSubject: 'Reminder: Lab 3 Submission Deadline',
-        emailSender: 'prof.chen@cs.university.edu',
-        emailSnippet: 'Late submissions will incur a 10% penalty per day.',
-      ),
-    ];
+    final user = ref.watch(authProvider);
+    ref.watch(cloudDataRevisionProvider);
+    if (user == null) {
+      return const [];
+    }
+    Future.microtask(refreshSuggestions);
+    return const [];
   }
 
-  void addSuggestion(ExtractedTaskSuggestion suggestion) {
-    if (!state.any((s) => s.title == suggestion.title)) {
-      state = [...state, suggestion];
+  Future<void> refreshSuggestions() async {
+    final user = ref.read(authProvider);
+    if (user == null) {
+      state = const [];
+      return;
+    }
+    final emailService = ref.read(emailIntegrationServiceProvider);
+    final pending = await emailService.getPendingSuggestions(userId: user.id);
+    state = pending;
+  }
+
+  Future<int> scanInbox() async {
+    final user = ref.read(authProvider);
+    if (user == null) return 0;
+    final emailService = ref.read(emailIntegrationServiceProvider);
+    await emailService.triggerInboxScan();
+    await ref.read(databaseServiceProvider).performCloudSync(userId: user.id);
+    await refreshSuggestions();
+    return state.length;
+  }
+
+  Future<void> markSuggestionStatus(ExtractedTaskSuggestion suggestion, String status) async {
+    final user = ref.read(authProvider);
+    state = state.where((s) => s != suggestion).toList();
+    if (user != null) {
+      await ref.read(emailIntegrationServiceProvider).updateSuggestionStatus(
+            userId: user.id,
+            suggestion: suggestion,
+            status: status,
+          );
     }
   }
 
-  void setSuggestions(List<ExtractedTaskSuggestion> suggestions) {
-    state = suggestions;
-  }
+  Future<void> acceptSuggestion(ExtractedTaskSuggestion suggestion) =>
+      markSuggestionStatus(suggestion, 'accepted');
 
-  void removeSuggestion(ExtractedTaskSuggestion suggestion) {
-    state = state.where((s) => s != suggestion).toList();
-  }
+  Future<void> dismissSuggestion(ExtractedTaskSuggestion suggestion) =>
+      markSuggestionStatus(suggestion, 'dismissed');
 }
 
 final ideasProvider = NotifierProvider<IdeasNotifier, List<ExtractedTaskSuggestion>>(IdeasNotifier.new);
+
