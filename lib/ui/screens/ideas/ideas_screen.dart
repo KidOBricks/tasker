@@ -28,11 +28,7 @@ class IdeasScreen extends ConsumerWidget {
     ref.read(ideasProvider.notifier).acceptSuggestion(suggestion);
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Added "${suggestion.title}" to your tasks!'),
-        backgroundColor: AppColors.inProgress,
-        behavior: SnackBarBehavior.floating,
-      ),
+      SnackBar(content: Text('Added "${suggestion.title}"')),
     );
   }
 
@@ -95,18 +91,14 @@ class IdeasScreen extends ConsumerWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Complete Google authorization in your browser, then tap Scan Inbox.'),
-            backgroundColor: AppColors.primary,
+            content: Text('Complete Google sign-in in your browser, then scan inbox'),
           ),
         );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: AppColors.overdue,
-          ),
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
         );
       }
     }
@@ -118,8 +110,7 @@ class IdeasScreen extends ConsumerWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Scanned Gmail inbox: $count actionable item${count == 1 ? "" : "s"} pending.'),
-            backgroundColor: AppColors.inProgress,
+            content: Text('Scanned inbox: $count item${count == 1 ? "" : "s"} pending'),
           ),
         );
       }
@@ -128,7 +119,6 @@ class IdeasScreen extends ConsumerWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Inbox scan failed: ${e.toString().replaceFirst('Exception: ', '')}'),
-            backgroundColor: AppColors.overdue,
           ),
         );
       }
@@ -140,202 +130,192 @@ class IdeasScreen extends ConsumerWidget {
     final suggestions = ref.watch(ideasProvider);
     final accounts = ref.watch(connectedAccountsProvider);
     final isGmailConnected = accounts.isGmailConnected || accounts.google != null;
+    final isWide = MediaQuery.of(context).size.width >= 840;
+    final pad = isWide ? 24.0 : 16.0;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Ideas & Email Inbox AI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-        actions: [
-          IconButton(
-            tooltip: 'Scan Gmail Inbox',
-            icon: const Icon(Icons.refresh, color: AppColors.primary),
-            onPressed: isGmailConnected ? () => _scanInbox(context, ref) : () => _connectGmail(context, ref),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(pad),
         children: [
-          // Gmail Connection Status Header
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.surface,
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: AppColors.border),
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Row(
-                    children: [
-                      Icon(
-                        Icons.mark_email_read,
-                        color: isGmailConnected ? Colors.redAccent : AppColors.textMuted,
-                        size: 20,
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              isGmailConnected
-                                  ? 'Gmail Inbox AI Active (${accounts.google?.email.isNotEmpty == true ? accounts.google!.email : "Connected"})'
-                                  : 'Gmail Inbox AI Disconnected',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13, color: AppColors.textPrimary),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            Text(
-                              isGmailConnected
-                                  ? 'Server-side AI extracts deadlines from unread messages'
-                                  : 'Connect Google account to parse unread emails for tasks',
-                              style: const TextStyle(fontSize: 11, color: AppColors.textSecondary),
-                            ),
-                          ],
+          Row(
+            children: [
+              const Text(
+                'Inbox Ideas',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.w500,
+                  color: AppColors.textPrimary,
+                ),
+              ),
+              const Spacer(),
+              OutlinedButton.icon(
+                onPressed: isGmailConnected
+                    ? () => _scanInbox(context, ref)
+                    : () => _connectGmail(context, ref),
+                icon: Icon(
+                  isGmailConnected ? Icons.refresh : Icons.link,
+                  size: 16,
+                  color: AppColors.textSecondary,
+                ),
+                label: Text(isGmailConnected ? 'Scan inbox' : 'Connect Gmail'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // Connection status card
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: isGmailConnected ? AppColors.inProgress : AppColors.textMuted,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          isGmailConnected
+                              ? 'Gmail connected (${accounts.google?.email.isNotEmpty == true ? accounts.google!.email : "Active"})'
+                              : 'Gmail disconnected',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w500,
+                            fontSize: 14,
+                            color: AppColors.textPrimary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 2),
+                        Text(
+                          isGmailConnected
+                              ? 'Scans unread messages for deadlines and suggested tasks'
+                              : 'Connect your Google account to extract tasks from unread mail',
+                          style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isGmailConnected ? AppColors.surface : Colors.redAccent,
-                    foregroundColor: isGmailConnected ? AppColors.textSecondary : Colors.white,
-                    side: isGmailConnected ? const BorderSide(color: AppColors.border) : null,
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                  ),
-                  onPressed: isGmailConnected ? () => _scanInbox(context, ref) : () => _connectGmail(context, ref),
-                  child: Text(isGmailConnected ? 'Scan Inbox' : 'Connect Gmail'),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
 
-          // Suggestions list
           if (suggestions.isEmpty)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 60),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.inbox, size: 48, color: AppColors.textMuted.withValues(alpha: 0.5)),
-                    const SizedBox(height: 12),
-                    Text(
-                      isGmailConnected
-                          ? 'No pending email task suggestions.'
-                          : 'Connect your Gmail account to extract tasks from unread emails.',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: AppColors.textMuted),
-                    ),
-                    const SizedBox(height: 8),
-                    TextButton.icon(
-                      icon: Icon(isGmailConnected ? Icons.refresh : Icons.link, size: 16),
-                      label: Text(isGmailConnected ? 'Scan Inbox for New Tasks' : 'Connect Gmail Account'),
-                      onPressed: isGmailConnected ? () => _scanInbox(context, ref) : () => _connectGmail(context, ref),
-                    ),
-                  ],
-                ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 48),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppColors.border),
+              ),
+              child: Column(
+                children: [
+                  const Icon(Icons.inbox_outlined, size: 32, color: AppColors.textMuted),
+                  const SizedBox(height: 12),
+                  Text(
+                    isGmailConnected
+                        ? 'No pending email task suggestions'
+                        : 'Connect Gmail to turn unread emails into tasks',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(fontSize: 14, color: AppColors.textSecondary),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton(
+                    onPressed: isGmailConnected
+                        ? () => _scanInbox(context, ref)
+                        : () => _connectGmail(context, ref),
+                    child: Text(isGmailConnected ? 'Scan inbox' : 'Connect Gmail'),
+                  ),
+                ],
               ),
             )
           else ...[
-            const Text('Actionable Tasks Detected in Email', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
+            Text(
+              'Suggested tasks (${suggestions.length})',
+              style: const TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+                color: AppColors.textPrimary,
+              ),
+            ),
             const SizedBox(height: 12),
             ...suggestions.map((suggestion) {
-              return Card(
-                margin: const EdgeInsets.only(bottom: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                  side: BorderSide(color: AppColors.border.withValues(alpha: 0.6)),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(6),
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'Level ${suggestion.importance}',
+                              style: AppTheme.mono(12, color: AppColors.primary, weight: FontWeight.w500),
                             ),
-                            child: Text(
-                              'Level ${suggestion.importance} (Priority)',
-                              style: const TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                          if (suggestion.suggestedDueDate != null)
-                            Row(
-                              children: [
-                                const Icon(Icons.access_time, size: 13, color: AppColors.level2),
-                                const SizedBox(width: 4),
-                                Text(
-                                  'Due ${DateFormat('MMM d, h:mm a').format(suggestion.suggestedDueDate!.toLocal())}',
-                                  style: const TextStyle(fontSize: 11, color: AppColors.level2, fontWeight: FontWeight.w600),
-                                ),
-                              ],
-                            ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        suggestion.title,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.textPrimary),
-                      ),
-                      if (suggestion.emailSubject.isNotEmpty || suggestion.emailSender.isNotEmpty) ...[
-                        const SizedBox(height: 4),
+                            if (suggestion.suggestedDueDate != null)
+                              Text(
+                                'Due ${DateFormat('MMM d, h:mm a').format(suggestion.suggestedDueDate!.toLocal())}',
+                                style: AppTheme.mono(12, color: AppColors.level2),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
                         Text(
-                          'From: ${suggestion.emailSender}  •  ${suggestion.emailSubject}',
-                          style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                          suggestion.title,
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w500,
+                            fontSize: 15,
+                            color: AppColors.textPrimary,
+                          ),
+                        ),
+                        if (suggestion.emailSubject.isNotEmpty || suggestion.emailSender.isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            '${suggestion.emailSender} • ${suggestion.emailSubject}',
+                            style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                        const SizedBox(height: 8),
+                        Text(
+                          suggestion.description.isNotEmpty ? suggestion.description : suggestion.emailSnippet,
+                          style: const TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.4),
+                        ),
+                        const SizedBox(height: 16),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            TextButton(
+                              onPressed: () => ref.read(ideasProvider.notifier).dismissSuggestion(suggestion),
+                              child: const Text('Dismiss'),
+                            ),
+                            const SizedBox(width: 8),
+                            OutlinedButton(
+                              onPressed: () => _editAndAccept(context, ref, suggestion),
+                              child: const Text('Edit'),
+                            ),
+                            const SizedBox(width: 8),
+                            ElevatedButton(
+                              onPressed: () => _acceptSuggestion(context, ref, suggestion),
+                              child: const Text('Add task'),
+                            ),
+                          ],
                         ),
                       ],
-                      const SizedBox(height: 6),
-                      Text(
-                        suggestion.description.isNotEmpty ? suggestion.description : suggestion.emailSnippet,
-                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                      ),
-                      const SizedBox(height: 14),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          TextButton(
-                            onPressed: () => ref.read(ideasProvider.notifier).dismissSuggestion(suggestion),
-                            child: const Text('Dismiss', style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
-                          ),
-                          const SizedBox(width: 8),
-                          OutlinedButton(
-                            onPressed: () => _editAndAccept(context, ref, suggestion),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: AppColors.textPrimary,
-                              side: const BorderSide(color: AppColors.border),
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            child: const Text('Edit Details', style: TextStyle(fontSize: 12)),
-                          ),
-                          const SizedBox(width: 8),
-                          ElevatedButton.icon(
-                            icon: const Icon(Icons.check, size: 16),
-                            label: const Text('Accept & Add', style: TextStyle(fontSize: 12)),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.white,
-                              visualDensity: VisualDensity.compact,
-                            ),
-                            onPressed: () => _acceptSuggestion(context, ref, suggestion),
-                          ),
-                        ],
-                      ),
-                    ],
+                    ),
                   ),
                 ),
               );
@@ -346,4 +326,3 @@ class IdeasScreen extends ConsumerWidget {
     );
   }
 }
-

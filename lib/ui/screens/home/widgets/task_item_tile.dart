@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:task_calendar_sync/domain/models/task_item.dart';
 import 'package:task_calendar_sync/domain/models/category_item.dart';
+import 'package:task_calendar_sync/domain/models/task_item.dart';
 import 'package:task_calendar_sync/ui/theme/app_theme.dart';
 import 'package:task_calendar_sync/ui/widgets/celebration_confetti.dart';
 
@@ -44,49 +44,45 @@ class TaskItemTile extends StatelessWidget {
     final priorityColor = _getPriorityColor();
     final isInProgress = task.isInProgress;
 
-    // Card background tint when In-Progress
-    final cardBg = isInProgress
-        ? AppColors.inProgress.withValues(alpha: 0.12)
-        : (task.isOverdue ? AppColors.overdue.withValues(alpha: 0.08) : AppColors.surface);
-
     final borderColor = isInProgress
-        ? AppColors.inProgress.withValues(alpha: 0.5)
-        : (task.isOverdue ? AppColors.overdue.withValues(alpha: 0.4) : AppColors.border);
+        ? AppColors.inProgress.withValues(alpha: 0.45)
+        : (task.isOverdue ? AppColors.overdue.withValues(alpha: 0.35) : AppColors.border);
 
     final category = categories.firstWhere(
       (c) => c.id == task.categoryId,
-      orElse: () => const CategoryItem(id: 'all', name: 'General', colorValue: 0xFF64748B),
+      orElse: () => const CategoryItem(id: 'all', name: 'General', colorValue: 0xFF7D7870),
     );
 
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
+      margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: borderColor, width: isInProgress ? 1.5 : 1),
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: borderColor, width: 1),
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(10),
+          hoverColor: AppColors.surfaceLight,
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Left Priority Color Pip
+                // 8px status dot
                 Container(
-                  width: 4,
-                  height: 38,
+                  width: 8,
+                  height: 8,
                   decoration: BoxDecoration(
-                    color: priorityColor,
-                    borderRadius: BorderRadius.circular(4),
+                    color: isInProgress ? AppColors.inProgress : priorityColor,
+                    shape: BoxShape.circle,
                   ),
                 ),
                 const SizedBox(width: 12),
 
-                // Center: Title, Category, Due Date, Attachments
+                // Center: title + quiet metadata
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -97,9 +93,9 @@ class TaskItemTile extends StatelessWidget {
                             child: Text(
                               task.title,
                               style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                                color: AppColors.textPrimary,
+                                fontSize: 14,
+                                fontWeight: FontWeight.w500,
+                                color: task.isCompleted ? AppColors.textMuted : AppColors.textPrimary,
                                 decoration: task.isCompleted ? TextDecoration.lineThrough : null,
                               ),
                               maxLines: 1,
@@ -107,72 +103,62 @@ class TaskItemTile extends StatelessWidget {
                             ),
                           ),
                           if (task.isRecurring) ...[
-                            const SizedBox(width: 6),
+                            const SizedBox(width: 8),
                             const Tooltip(
-                              message: 'Recurring scheduled task',
-                              child: Icon(Icons.repeat, size: 14, color: AppColors.primary),
+                              message: 'Recurring task',
+                              child: Icon(Icons.repeat, size: 14, color: AppColors.textMuted),
                             ),
                           ],
                         ],
                       ),
-                      const SizedBox(height: 5),
+                      const SizedBox(height: 4),
                       Wrap(
                         crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 8,
+                        spacing: 12,
+                        runSpacing: 4,
                         children: [
-                          // Category Chip
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Color(category.colorValue).withValues(alpha: 0.18),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              category.name,
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w500,
-                                color: Color(category.colorValue),
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Container(
+                                width: 6,
+                                height: 6,
+                                decoration: BoxDecoration(
+                                  color: Color(category.colorValue),
+                                  shape: BoxShape.circle,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                category.name,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: AppColors.textSecondary,
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (task.dueDate != null)
+                            Text(
+                              _formatDueDate(task.dueDate!, task.isOverdue),
+                              style: AppTheme.mono(
+                                12,
+                                color: task.isOverdue ? AppColors.overdue : AppColors.textMuted,
+                                weight: task.isOverdue ? FontWeight.w500 : FontWeight.w400,
                               ),
                             ),
-                          ),
-
-                          // Due Date Badge
-                          if (task.dueDate != null) ...[
-                            Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  Icons.schedule,
-                                  size: 13,
-                                  color: task.isOverdue ? AppColors.overdue : AppColors.textMuted,
-                                ),
-                                const SizedBox(width: 3),
-                                Text(
-                                  _formatDueDate(task.dueDate!, task.isOverdue),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: task.isOverdue ? FontWeight.w700 : FontWeight.w400,
-                                    color: task.isOverdue ? AppColors.overdue : AppColors.textMuted,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-
-                          // Attachment Indicator
-                          if (task.attachmentPaths.isNotEmpty) ...[
+                          if (task.attachmentPaths.isNotEmpty)
                             Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 const Icon(Icons.attach_file, size: 12, color: AppColors.textMuted),
+                                const SizedBox(width: 2),
                                 Text(
                                   '${task.attachmentPaths.length}',
-                                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                  style: AppTheme.mono(12, color: AppColors.textMuted),
                                 ),
                               ],
                             ),
-                          ],
                         ],
                       ),
                     ],
@@ -181,51 +167,49 @@ class TaskItemTile extends StatelessWidget {
 
                 const SizedBox(width: 8),
 
-                // Right Side Actions: "In Progress" Button + "Complete" Checkbox + Quick Overflow Menu
+                // Actions: in progress toggle, complete checkbox, overflow menu
                 Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // In-Progress Button
                     IconButton(
-                      tooltip: isInProgress ? 'Active In Progress (Tap to unmark)' : 'Mark as In Progress',
+                      tooltip: isInProgress ? 'Unmark in progress' : 'Mark in progress',
                       onPressed: onToggleInProgress,
+                      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                      padding: EdgeInsets.zero,
                       style: IconButton.styleFrom(
                         backgroundColor: isInProgress
-                            ? AppColors.inProgress.withValues(alpha: 0.25)
+                            ? AppColors.inProgress.withValues(alpha: 0.16)
                             : Colors.transparent,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(8),
                           side: BorderSide(
-                            color: isInProgress ? AppColors.inProgress : AppColors.border,
-                            width: 1,
+                            color: isInProgress ? AppColors.inProgress.withValues(alpha: 0.5) : AppColors.border,
                           ),
                         ),
-                        padding: const EdgeInsets.all(6),
                       ),
                       icon: Icon(
                         isInProgress ? Icons.play_arrow : Icons.play_arrow_outlined,
-                        size: 18,
+                        size: 16,
                         color: isInProgress ? AppColors.inProgress : AppColors.textMuted,
                       ),
                     ),
-
-                    const SizedBox(width: 6),
-
-                    // Complete Checkbox with celebration confetti
+                    const SizedBox(width: 4),
                     Checkbox(
                       value: task.isCompleted,
                       onChanged: (_) => _handleComplete(context),
                       activeColor: AppColors.inProgress,
-                      checkColor: Colors.white,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+                      checkColor: AppColors.actionFg,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
                       side: const BorderSide(color: AppColors.textMuted, width: 1.5),
                     ),
-
-                    // Quick Options Menu (Edit, Ignore, Delete)
                     PopupMenuButton<String>(
                       tooltip: 'Task options',
-                      icon: const Icon(Icons.more_vert, size: 18, color: AppColors.textMuted),
+                      icon: const Icon(Icons.more_horiz, size: 18, color: AppColors.textMuted),
                       color: AppColors.surface,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        side: const BorderSide(color: AppColors.borderStrong),
+                      ),
                       onSelected: (val) {
                         switch (val) {
                           case 'edit':
@@ -247,9 +231,9 @@ class TaskItemTile extends StatelessWidget {
                           value: 'edit',
                           child: Row(
                             children: [
-                              Icon(Icons.edit, size: 16, color: AppColors.primary),
-                              SizedBox(width: 10),
-                              Text('Edit Task'),
+                              Icon(Icons.edit_outlined, size: 16, color: AppColors.textSecondary),
+                              SizedBox(width: 8),
+                              Text('Edit task', style: TextStyle(fontSize: 13)),
                             ],
                           ),
                         ),
@@ -258,12 +242,15 @@ class TaskItemTile extends StatelessWidget {
                           child: Row(
                             children: [
                               Icon(
-                                isInProgress ? Icons.pause : Icons.play_arrow,
+                                isInProgress ? Icons.pause : Icons.play_arrow_outlined,
                                 size: 16,
-                                color: AppColors.inProgress,
+                                color: AppColors.textSecondary,
                               ),
-                              const SizedBox(width: 10),
-                              Text(isInProgress ? 'Unmark In-Progress' : 'Mark In-Progress'),
+                              const SizedBox(width: 8),
+                              Text(
+                                isInProgress ? 'Unmark in progress' : 'Mark in progress',
+                                style: const TextStyle(fontSize: 13),
+                              ),
                             ],
                           ),
                         ),
@@ -271,9 +258,9 @@ class TaskItemTile extends StatelessWidget {
                           value: 'ignore',
                           child: Row(
                             children: [
-                              Icon(Icons.visibility_off_outlined, size: 16, color: AppColors.textMuted),
-                              SizedBox(width: 10),
-                              Text('Ignore Task'),
+                              Icon(Icons.visibility_off_outlined, size: 16, color: AppColors.textSecondary),
+                              SizedBox(width: 8),
+                              Text('Ignore task', style: TextStyle(fontSize: 13)),
                             ],
                           ),
                         ),
@@ -283,8 +270,8 @@ class TaskItemTile extends StatelessWidget {
                           child: Row(
                             children: [
                               Icon(Icons.delete_outline, size: 16, color: AppColors.overdue),
-                              SizedBox(width: 10),
-                              Text('Delete', style: TextStyle(color: AppColors.overdue)),
+                              SizedBox(width: 8),
+                              Text('Delete', style: TextStyle(fontSize: 13, color: AppColors.overdue)),
                             ],
                           ),
                         ),
@@ -307,17 +294,17 @@ class TaskItemTile extends StatelessWidget {
     final timeStr = DateFormat('h:mm a').format(date);
 
     if (dueDay.isAtSameMomentAs(today)) {
-      return isOverdue ? 'Overdue Today ($timeStr)' : 'Today ($timeStr)';
+      return isOverdue ? 'Overdue $timeStr' : 'Today $timeStr';
     }
 
     final tomorrow = today.add(const Duration(days: 1));
     if (dueDay.isAtSameMomentAs(tomorrow)) {
-      return 'Tomorrow ($timeStr)';
+      return 'Tomorrow $timeStr';
     }
 
     if (dueDay.difference(today).inDays.abs() < 7) {
       final weekday = DateFormat('EEE').format(date);
-      return '$weekday ($timeStr)';
+      return '$weekday $timeStr';
     }
 
     return DateFormat('MMM d, h:mm a').format(date);

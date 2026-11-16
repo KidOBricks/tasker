@@ -1,11 +1,11 @@
 {
-    "name": "task_calendar_sync",
-    "short_name": "task_calendar_sync",
+    "name": "Tasker",
+    "short_name": "Tasker",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#161614",
+    "theme_color": "#161614",
+    "description": "Offline-first tasks, dynamic priority escalation, calendar prep, and cross-device sync.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [

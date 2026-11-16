@@ -147,7 +147,7 @@ void main() {
     // 6. Test Navigation to Ideas Screen
     await tester.tap(find.byIcon(Icons.lightbulb_outline));
     await tester.pumpAndSettle();
-    expect(find.text('Ideas & Email Inbox AI'), findsWidgets);
+    expect(find.text('Inbox Ideas'), findsWidgets);
 
     // 7. Test Navigation to Profile & Settings Screen
     await tester.tap(find.byIcon(Icons.settings_outlined));

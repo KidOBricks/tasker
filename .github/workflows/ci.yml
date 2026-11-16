@@ -41,9 +41,9 @@ jobs:
       - name: Build Flutter Web
         run: |
           if [ -n "${{ vars.TASKER_API_URL }}" ]; then
-            flutter build web --release --dart-define=TASKER_API_URL=${{ vars.TASKER_API_URL }}
+            flutter build web --release --no-web-resources-cdn --dart-define=TASKER_API_URL=${{ vars.TASKER_API_URL }}
           else
-            flutter build web --release
+            flutter build web --release --no-web-resources-cdn
           fi
       - uses: actions/upload-artifact@v4
         with:

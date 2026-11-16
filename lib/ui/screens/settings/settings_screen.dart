@@ -16,12 +16,11 @@ class SettingsScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Password & Account Access'),
+        title: const Text('Account access'),
         content: const Text(
           'Tasker does not send automated reset emails.\n\n'
-          '• You can sign in anytime using Google or Microsoft SSO.\n'
-          '• To change an email/password login, ask your administrator to update your password in the PocketBase Admin UI (/_/).',
-          style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+          'Sign in with Google or Microsoft SSO, or ask an admin to update your password in PocketBase (/_/).',
+          style: TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.5),
         ),
         actions: [
           ElevatedButton(
@@ -46,20 +45,20 @@ class SettingsScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Edit Account Profile'),
+        title: const Text('Edit profile'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: nameController,
-              decoration: const InputDecoration(labelText: 'Display Name'),
+              decoration: const InputDecoration(labelText: 'Display name'),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: emailController,
               readOnly: true,
               decoration: const InputDecoration(
-                labelText: 'Email Address (Managed in PocketBase)',
+                labelText: 'Email (managed in PocketBase)',
               ),
             ),
           ],
@@ -76,13 +75,12 @@ class SettingsScreen extends ConsumerWidget {
                 await ref.read(authProvider.notifier).updateDisplayName(nextName);
                 if (ctx.mounted) nav.pop();
                 messenger.showSnackBar(
-                  const SnackBar(content: Text('Profile display name updated!')),
+                  const SnackBar(content: Text('Profile updated')),
                 );
               } catch (e) {
                 messenger.showSnackBar(
                   SnackBar(
-                    content: Text('Failed to update profile: ${e.toString().replaceFirst("Exception: ", "")}'),
-                    backgroundColor: AppColors.overdue,
+                    content: Text('Update failed: ${e.toString().replaceFirst("Exception: ", "")}'),
                   ),
                 );
               }
@@ -101,13 +99,13 @@ class SettingsScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Tasker Server URL'),
+        title: const Text('Server URL'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             const Text(
-              'Set the base URL of your PocketBase server (for example https://1-2-3-4.sslip.io).',
+              'Base URL of your PocketBase server, such as https://1-2-3-4.sslip.io',
               style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
             ),
             const SizedBox(height: 12),
@@ -138,7 +136,7 @@ class SettingsScreen extends ConsumerWidget {
               }
               if (ctx.mounted) Navigator.of(ctx).pop();
             },
-            child: const Text('Save & Sync'),
+            child: const Text('Save & sync'),
           ),
         ],
       ),
@@ -152,19 +150,15 @@ class SettingsScreen extends ConsumerWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Complete ${provider == "google" ? "Google" : "Microsoft"} authorization in your browser, then return here.',
+              'Complete ${provider == "google" ? "Google" : "Microsoft"} sign-in in your browser, then return here',
             ),
-            backgroundColor: AppColors.primary,
           ),
         );
       }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: AppColors.overdue,
-          ),
+          SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
         );
       }
     }
@@ -178,7 +172,7 @@ class SettingsScreen extends ConsumerWidget {
     final picked = await showTimePicker(
       context: context,
       initialTime: TimeOfDay(hour: initialHour, minute: initialMin),
-      helpText: 'Select Review Tasks Reminder Time',
+      helpText: 'Daily review time',
       builder: (context, child) => Theme(data: AppTheme.darkTheme(), child: child!),
     );
 
@@ -195,7 +189,7 @@ class SettingsScreen extends ConsumerWidget {
       context: context,
       firstDate: now.subtract(const Duration(days: 30)),
       lastDate: now.add(const Duration(days: 365)),
-      helpText: 'Select Vacation Duration',
+      helpText: 'Vacation period',
       builder: (context, child) => Theme(data: AppTheme.darkTheme(), child: child!),
     );
 
@@ -214,87 +208,103 @@ class SettingsScreen extends ConsumerWidget {
     final authUser = ref.watch(authProvider);
     final shownName = profile.displayName.isNotEmpty ? profile.displayName : (authUser?.displayName ?? 'User');
     final shownEmail = authUser?.email.isNotEmpty == true ? authUser!.email : profile.email;
+    final isWide = MediaQuery.of(context).size.width >= 840;
+    final pad = isWide ? 24.0 : 16.0;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Profile & Settings', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-      ),
       body: ListView(
-        padding: const EdgeInsets.all(16),
+        padding: EdgeInsets.all(pad),
         children: [
+          const Text(
+            'Profile & Settings',
+            style: TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w500,
+              color: AppColors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 16),
+
           // 1. Account Profile Card
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              padding: const EdgeInsets.all(20),
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      CircleAvatar(
-                        radius: 26,
-                        backgroundColor: AppColors.primary,
-                        child: Text(
-                          shownName.isNotEmpty ? shownName[0].toUpperCase() : 'U',
-                          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                  CircleAvatar(
+                    radius: 22,
+                    backgroundColor: AppColors.surfaceLight,
+                    child: Text(
+                      shownName.isNotEmpty ? shownName[0].toUpperCase() : 'U',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w500,
+                        color: AppColors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          shownName,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.textPrimary,
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 14),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              shownName,
-                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                            ),
-                            Text(shownEmail, style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
-                          ],
+                        const SizedBox(height: 2),
+                        Text(
+                          shownEmail,
+                          style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
                         ),
-                      ),
-                      IconButton(
-                        tooltip: 'Edit Profile',
-                        icon: const Icon(Icons.edit, size: 18, color: AppColors.primary),
-                        onPressed: () => _showEditProfileDialog(context, ref),
-                      ),
-                      OutlinedButton(
-                        onPressed: () => _showPasswordHelpDialog(context),
-                        child: const Text('Reset Pass'),
-                      ),
-                    ],
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: 'Edit profile',
+                    icon: const Icon(Icons.edit_outlined, size: 18, color: AppColors.textSecondary),
+                    onPressed: () => _showEditProfileDialog(context, ref),
+                  ),
+                  const SizedBox(width: 4),
+                  OutlinedButton(
+                    onPressed: () => _showPasswordHelpDialog(context),
+                    child: const Text('Reset pass'),
                   ),
                 ],
               ),
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 24),
 
-          // 2. Cloud Sync & Connected Accounts Section
-          const Text('Cloud Sync & Connected Accounts', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 10),
+          // 2. Cloud Sync & Connected Accounts
+          const Text(
+            'Cloud Sync & Connected Accounts',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.textPrimary),
+          ),
+          const SizedBox(height: 12),
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Cloud Database Row
                   Consumer(
                     builder: (context, ref, _) {
                       final syncStatus = ref.watch(syncStatusProvider).value ?? SyncStatus.offline;
                       final dbService = ref.read(databaseServiceProvider);
                       final badgeColor = syncStatus == SyncStatus.synced
-                          ? Colors.green
-                          : (syncStatus == SyncStatus.syncing ? AppColors.primary : Colors.orange);
+                          ? AppColors.inProgress
+                          : (syncStatus == SyncStatus.syncing ? AppColors.primary : AppColors.level2);
                       return Row(
                         children: [
                           Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.cloud_sync, color: AppColors.primary, size: 20),
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(color: badgeColor, shape: BoxShape.circle),
                           ),
                           const SizedBox(width: 12),
                           Expanded(
@@ -305,24 +315,20 @@ class SettingsScreen extends ConsumerWidget {
                                   spacing: 8,
                                   crossAxisAlignment: WrapCrossAlignment.center,
                                   children: [
-                                    const Text('PocketBase Cloud Sync', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: badgeColor.withValues(alpha: 0.15),
-                                        borderRadius: BorderRadius.circular(4),
-                                        border: Border.all(color: badgeColor.withValues(alpha: 0.4)),
-                                      ),
-                                      child: Text(
-                                        syncStatus.displayName,
-                                        style: TextStyle(fontSize: 10, color: badgeColor, fontWeight: FontWeight.bold),
-                                      ),
+                                    const Text(
+                                      'PocketBase Cloud Sync',
+                                      style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
+                                    ),
+                                    Text(
+                                      syncStatus.displayName,
+                                      style: AppTheme.mono(12, color: badgeColor),
                                     ),
                                   ],
                                 ),
+                                const SizedBox(height: 2),
                                 Text(
-                                  'Server: ${dbService.serverUrl} • Drift SQLite + Realtime SSE',
-                                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                  '${dbService.serverUrl} • Drift SQLite + SSE',
+                                  style: AppTheme.mono(11, color: AppColors.textMuted),
                                 ),
                               ],
                             ),
@@ -330,48 +336,39 @@ class SettingsScreen extends ConsumerWidget {
                           if (!kIsWeb) ...[
                             TextButton(
                               onPressed: () => _showServerUrlDialog(context, ref),
-                              child: const Text('Server', style: TextStyle(fontSize: 11)),
+                              child: const Text('Server'),
                             ),
+                            const SizedBox(width: 4),
                           ],
                           ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                              textStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
-                            ),
                             onPressed: () async {
                               final auth = ref.read(authProvider);
                               await ref.read(databaseServiceProvider).performCloudSync(userId: auth?.id);
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Two-way cloud synchronization complete!')),
+                                  const SnackBar(content: Text('Cloud sync complete')),
                                 );
                               }
                             },
-                            child: const Text('Sync Now'),
+                            child: const Text('Sync now'),
                           ),
                         ],
                       );
                     },
                   ),
-                  const Divider(color: AppColors.border, height: 26),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Divider(),
+                  ),
 
-                  // Google Account (Calendar & Gmail)
+                  // Google Account
                   Consumer(
                     builder: (context, ref, _) {
                       final accounts = ref.watch(connectedAccountsProvider);
                       final isConnected = accounts.google != null;
                       return Row(
                         children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.g_mobiledata, color: Colors.blue, size: 20),
-                          ),
+                          const Icon(Icons.account_circle_outlined, size: 18, color: AppColors.textSecondary),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
@@ -379,25 +376,24 @@ class SettingsScreen extends ConsumerWidget {
                               children: [
                                 Text(
                                   isConnected
-                                      ? 'Google Account (${accounts.google!.email.isNotEmpty ? accounts.google!.email : "Connected"})'
-                                      : 'Google Account (Calendar & Gmail)',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                      ? 'Google (${accounts.google!.email.isNotEmpty ? accounts.google!.email : "Connected"})'
+                                      : 'Google (Calendar & Gmail)',
+                                  style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
                                 ),
+                                const SizedBox(height: 2),
                                 Text(
                                   isConnected
-                                      ? 'Syncing Google Calendar events and Gmail task AI on server'
-                                      : 'Not connected. Connect via OAuth to sync Google Calendar and Gmail.',
-                                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                      ? 'Syncing Google Calendar events and Gmail inbox extraction'
+                                      : 'Connect via OAuth to sync Google Calendar and Gmail',
+                                  style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
                                 ),
                               ],
                             ),
                           ),
                           OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: isConnected ? AppColors.overdue : Colors.blue,
-                              side: BorderSide(color: isConnected ? AppColors.overdue.withValues(alpha: 0.5) : Colors.blue),
-                              visualDensity: VisualDensity.compact,
-                            ),
+                            style: isConnected
+                                ? OutlinedButton.styleFrom(foregroundColor: AppColors.overdue)
+                                : null,
                             onPressed: () {
                               if (isConnected) {
                                 ref.read(connectedAccountsProvider.notifier).disconnectGoogle();
@@ -411,7 +407,10 @@ class SettingsScreen extends ConsumerWidget {
                       );
                     },
                   ),
-                  const Divider(color: AppColors.border, height: 26),
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Divider(),
+                  ),
 
                   // Microsoft Outlook Account
                   Consumer(
@@ -420,14 +419,7 @@ class SettingsScreen extends ConsumerWidget {
                       final isConnected = accounts.outlook != null;
                       return Row(
                         children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: Colors.cyan.withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: const Icon(Icons.calendar_today, color: Colors.cyan, size: 20),
-                          ),
+                          const Icon(Icons.grid_view_outlined, size: 18, color: AppColors.textSecondary),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Column(
@@ -437,23 +429,22 @@ class SettingsScreen extends ConsumerWidget {
                                   isConnected
                                       ? 'Microsoft 365 (${accounts.outlook!.email.isNotEmpty ? accounts.outlook!.email : "Connected"})'
                                       : 'Microsoft 365 / Outlook Calendar',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                  style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14),
                                 ),
+                                const SizedBox(height: 2),
                                 Text(
                                   isConnected
                                       ? 'Syncing Outlook Calendar events via Microsoft Graph'
-                                      : 'Not connected. Connect via OAuth to sync Outlook meetings.',
-                                  style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                      : 'Connect via OAuth to sync Outlook meetings',
+                                  style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
                                 ),
                               ],
                             ),
                           ),
                           OutlinedButton(
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: isConnected ? AppColors.overdue : Colors.cyan,
-                              side: BorderSide(color: isConnected ? AppColors.overdue.withValues(alpha: 0.5) : Colors.cyan),
-                              visualDensity: VisualDensity.compact,
-                            ),
+                            style: isConnected
+                                ? OutlinedButton.styleFrom(foregroundColor: AppColors.overdue)
+                                : null,
                             onPressed: () {
                               if (isConnected) {
                                 ref.read(connectedAccountsProvider.notifier).disconnectOutlook();
@@ -471,32 +462,39 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 24),
 
-          // 3. Custom Importance Escalation Rules Section
-          const Text('Priority & Escalation Windows', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 10),
+          // 3. Priority & Escalation Windows
+          const Text(
+            'Priority & Escalation Windows',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.textPrimary),
+          ),
+          const SizedBox(height: 12),
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Max in-progress tasks limit
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Max In-Progress Tasks', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                          Text('Limit concurrent active tasks for focus', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                        ],
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Max in-progress tasks', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
+                            SizedBox(height: 2),
+                            Text('Limit concurrent active tasks', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                          ],
+                        ),
                       ),
                       DropdownButton<int>(
                         value: profile.maxInProgressTasks,
                         dropdownColor: AppColors.surface,
-                        items: [1, 2, 3, 5, 10].map((count) => DropdownMenuItem(value: count, child: Text('$count tasks'))).toList(),
+                        items: [1, 2, 3, 5, 10]
+                            .map((count) => DropdownMenuItem(value: count, child: Text('$count tasks')))
+                            .toList(),
                         onChanged: (val) {
                           if (val != null) {
                             ref.read(profileProvider.notifier).updateSettings(maxInProgressTasks: val);
@@ -505,23 +503,27 @@ class SettingsScreen extends ConsumerWidget {
                       ),
                     ],
                   ),
-                  const Divider(color: AppColors.border, height: 24),
-
-                  // Number of importance levels (e.g. 3, 4, 5)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Divider(),
+                  ),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Number of Importance Levels', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                          Text('Select tier hierarchy depth (3, 4, or 5)', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                        ],
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Importance levels', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
+                            SizedBox(height: 2),
+                            Text('Tier hierarchy depth (3, 4, or 5)', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                          ],
+                        ),
                       ),
                       DropdownButton<int>(
                         value: profile.numImportanceLevels,
                         dropdownColor: AppColors.surface,
-                        items: [3, 4, 5].map((lvl) => DropdownMenuItem(value: lvl, child: Text('$lvl Levels'))).toList(),
+                        items: [3, 4, 5].map((lvl) => DropdownMenuItem(value: lvl, child: Text('$lvl levels'))).toList(),
                         onChanged: (val) {
                           if (val != null) {
                             ref.read(profileProvider.notifier).updateSettings(numImportanceLevels: val);
@@ -530,36 +532,36 @@ class SettingsScreen extends ConsumerWidget {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 14),
-
-                  // Custom Importance Level Names Customizer
-                  const Text('Custom Level Labels', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textSecondary)),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Level labels',
+                    style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13, color: AppColors.textSecondary),
+                  ),
                   const SizedBox(height: 8),
-                  for (int lvl = profile.numImportanceLevels; lvl >= 1; lvl--) ...[
+                  for (int lvl = profile.numImportanceLevels; lvl >= 1; lvl--)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Row(
                         children: [
                           Container(
-                            width: 24,
-                            height: 24,
+                            width: 28,
+                            height: 28,
                             alignment: Alignment.center,
                             decoration: BoxDecoration(
-                              color: AppColors.primary.withValues(alpha: 0.18),
+                              color: AppColors.surfaceLight,
                               borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: AppColors.border),
                             ),
-                            child: Text('$lvl', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, color: AppColors.primary)),
+                            child: Text(
+                              '$lvl',
+                              style: AppTheme.mono(12, color: AppColors.textPrimary, weight: FontWeight.w500),
+                            ),
                           ),
-                          const SizedBox(width: 10),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: TextFormField(
                               initialValue: profile.getLevelName(lvl),
                               style: const TextStyle(fontSize: 13),
-                              decoration: InputDecoration(
-                                isDense: true,
-                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                              ),
                               onFieldSubmitted: (text) {
                                 if (text.trim().isNotEmpty) {
                                   ref.read(profileProvider.notifier).updateLevelName(lvl, text.trim());
@@ -570,13 +572,15 @@ class SettingsScreen extends ConsumerWidget {
                         ],
                       ),
                     ),
-                  ],
-                  const Divider(color: AppColors.border, height: 24),
-
-                  // Escalation Windows (Number on left, Modifier on right)
-                  const Text('Escalation Windows', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13, color: AppColors.textSecondary)),
-                  const SizedBox(height: 10),
-                  // Level 2 Escalation Window
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Divider(),
+                  ),
+                  const Text(
+                    'Escalation windows',
+                    style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13, color: AppColors.textSecondary),
+                  ),
+                  const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -584,8 +588,8 @@ class SettingsScreen extends ConsumerWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Escalate to Level 2', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                            Text('When due date approaches within', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                            Text('Escalate to level 2', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
+                            Text('When due date is within', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
                           ],
                         ),
                       ),
@@ -624,7 +628,6 @@ class SettingsScreen extends ConsumerWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  // Level 3 Escalation Window
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -632,8 +635,8 @@ class SettingsScreen extends ConsumerWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Escalate to Level 3', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                            Text('When due date approaches within', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                            Text('Escalate to level 3', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
+                            Text('When due date is within', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
                           ],
                         ),
                       ),
@@ -674,25 +677,19 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
 
-          // 3. Edit Auto-Scheduled Tasks Manager Link
+          // Auto-Scheduled Tasks Manager Link
           Card(
             child: ListTile(
-              leading: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: AppColors.primary.withValues(alpha: 0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Icon(Icons.repeat, color: AppColors.primary, size: 22),
-              ),
-              title: const Text('Edit Auto-Scheduled Tasks', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+              leading: const Icon(Icons.repeat, color: AppColors.textSecondary, size: 20),
+              title: const Text('Edit Auto-Scheduled Tasks', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
               subtitle: Text(
-                'View, modify, and delete all recurring routines (${rules.length} configured)',
-                style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                '${rules.length} recurring routines configured',
+                style: AppTheme.mono(12, color: AppColors.textMuted),
               ),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.textMuted),
+              trailing: const Icon(Icons.chevron_right, size: 18, color: AppColors.textMuted),
               onTap: () {
                 Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const AutoScheduledTasksScreen()),
@@ -700,36 +697,43 @@ class SettingsScreen extends ConsumerWidget {
               },
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 24),
 
-          // 4. Notifications Section
-          const Text('Notifications & Daily Review', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 10),
+          // 4. Notifications & Daily Review
+          const Text(
+            'Notifications & daily review',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.textPrimary),
+          ),
+          const SizedBox(height: 12),
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Enable Push / Desktop Notifications', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                    subtitle: const Text('Receive alerts for upcoming and overdue deadlines', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                    title: const Text('Push and desktop notifications', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
+                    subtitle: const Text('Alert on upcoming and overdue deadlines', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
                     value: profile.notificationsEnabled,
-                    activeThumbColor: AppColors.inProgress,
+                    activeThumbColor: AppColors.primary,
                     onChanged: (val) => ref.read(profileProvider.notifier).updateSettings(notificationsEnabled: val),
                   ),
-                  const Divider(color: AppColors.border, height: 20),
-                  // Lead time
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Divider(),
+                  ),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Notification Timing', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                          Text('Alert lead time prior to deadline', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                        ],
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Lead time', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
+                            Text('Alert before due time', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                          ],
+                        ),
                       ),
                       DropdownButton<int>(
                         value: profile.notifyPriorHours,
@@ -749,16 +753,17 @@ class SettingsScreen extends ConsumerWidget {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  // Task tier filter
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text('Tasks to Notify For', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                          Text('Filter notification frequency by urgency', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
-                        ],
+                      const Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Tasks to notify for', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
+                            Text('Filter alerts by urgency', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                          ],
+                        ),
                       ),
                       DropdownButton<String>(
                         value: profile.notifyForTier,
@@ -776,8 +781,10 @@ class SettingsScreen extends ConsumerWidget {
                       ),
                     ],
                   ),
-                  const Divider(color: AppColors.border, height: 20),
-                  // Daily "Review Tasks" persistent notification
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Divider(),
+                  ),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -785,22 +792,22 @@ class SettingsScreen extends ConsumerWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Daily "Review Tasks" Reminder', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                            const Text('Daily review reminder', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
                             Text(
-                              'Reminds at ${profile.reviewTasksTime} daily until you open the app that day',
-                              style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                              'Reminds at ${profile.reviewTasksTime} until opened',
+                              style: AppTheme.mono(12, color: AppColors.textMuted),
                             ),
                           ],
                         ),
                       ),
                       TextButton.icon(
                         icon: const Icon(Icons.access_time, size: 16),
-                        label: Text(profile.reviewTasksTime),
+                        label: Text(profile.reviewTasksTime, style: AppTheme.mono(12, color: AppColors.textPrimary)),
                         onPressed: () => _pickReviewTime(context, ref, profile.reviewTasksTime),
                       ),
                       Switch(
                         value: profile.reviewTasksEnabled,
-                        activeThumbColor: AppColors.inProgress,
+                        activeThumbColor: AppColors.primary,
                         onChanged: (val) => ref.read(profileProvider.notifier).updateSettings(reviewTasksEnabled: val),
                       ),
                     ],
@@ -809,66 +816,64 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 24),
 
-          // 5. Vacation Mode Section
-          const Text('Vacation Mode', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary)),
-          const SizedBox(height: 10),
+          // 5. Vacation Mode
+          const Text(
+            'Vacation Mode',
+            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.textPrimary),
+          ),
+          const SizedBox(height: 12),
           Card(
             child: Padding(
-              padding: const EdgeInsets.all(18),
+              padding: const EdgeInsets.all(20),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   SwitchListTile(
                     contentPadding: EdgeInsets.zero,
-                    title: const Text('Vacation Mode', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 14)),
-                    subtitle: const Text('Freeze recurring chores and filter notifications while away', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                    title: const Text('Pause recurring routines', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
+                    subtitle: const Text('Freeze selected routines and mute alerts while away', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
                     value: profile.vacationModeEnabled,
                     activeThumbColor: AppColors.primary,
                     onChanged: (val) => ref.read(profileProvider.notifier).updateSettings(vacationModeEnabled: val),
                   ),
                   if (profile.vacationModeEnabled) ...[
-                    const Divider(color: AppColors.border, height: 20),
-                    // Vacation Date Range
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 12),
+                      child: Divider(),
+                    ),
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text('Vacation Period', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                            const Text('Vacation period', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
                             Text(
                               profile.vacationStartDate != null && profile.vacationEndDate != null
-                                  ? '${DateFormat("MMM d").format(profile.vacationStartDate!)} - ${DateFormat("MMM d, yyyy").format(profile.vacationEndDate!)}'
-                                  : 'No dates set (Indefinite)',
-                              style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                                  ? '${DateFormat("MMM d").format(profile.vacationStartDate!)} – ${DateFormat("MMM d, yyyy").format(profile.vacationEndDate!)}'
+                                  : 'No dates set (indefinite)',
+                              style: AppTheme.mono(12, color: AppColors.textMuted),
                             ),
                           ],
                         ),
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppColors.background,
-                            foregroundColor: AppColors.textPrimary,
-                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                          ),
-                          icon: const Icon(Icons.date_range, size: 16),
-                          label: const Text('Set Dates'),
+                        OutlinedButton.icon(
+                          icon: const Icon(Icons.date_range_outlined, size: 16),
+                          label: const Text('Set dates'),
                           onPressed: () => _pickVacationRange(context, ref),
                         ),
                       ],
                     ),
                     const SizedBox(height: 16),
-
-                    // Notification filter in Vacation
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text('Vacation Notifications', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                            Text('Allowed notifications while on vacation', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                            Text('Vacation notifications', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
+                            Text('Alerts allowed while away', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
                           ],
                         ),
                         DropdownButton<String>(
@@ -888,12 +893,10 @@ class SettingsScreen extends ConsumerWidget {
                       ],
                     ),
                     const SizedBox(height: 16),
-
-                    // Frozen chores checklist
-                    const Text('Select Auto-Scheduled Tasks to Freeze:', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
+                    const Text('Routines to pause', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
                     const SizedBox(height: 8),
                     if (rules.isEmpty)
-                      const Text('No auto-scheduled routines configured.', style: TextStyle(fontSize: 12, color: AppColors.textMuted))
+                      const Text('No auto-scheduled routines configured', style: TextStyle(fontSize: 12, color: AppColors.textMuted))
                     else
                       ...rules.map((rule) {
                         final isChecked = profile.vacationFrozenChoreIds.contains(rule.id);
@@ -901,7 +904,7 @@ class SettingsScreen extends ConsumerWidget {
                           contentPadding: EdgeInsets.zero,
                           dense: true,
                           title: Text(rule.title, style: const TextStyle(fontSize: 13)),
-                          subtitle: Text(rule.recurrenceSummary, style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+                          subtitle: Text(rule.recurrenceSummary, style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
                           value: isChecked,
                           onChanged: (_) => ref.read(profileProvider.notifier).toggleVacationChore(rule.id),
                         );
@@ -911,7 +914,7 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
           ),
-          const SizedBox(height: 30),
+          const SizedBox(height: 32),
         ],
       ),
     );

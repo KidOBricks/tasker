@@ -630,7 +630,7 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
                             padding: EdgeInsets.symmetric(vertical: 4),
                             child: Text(
                               'No files attached',
-                              style: TextStyle(fontSize: 12, color: AppColors.textMuted, fontStyle: FontStyle.italic),
+                              style: TextStyle(fontSize: 12, color: AppColors.textMuted),
                             ),
                           ),
                       ],
@@ -698,7 +698,7 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
                           ElevatedButton.icon(
                             style: ElevatedButton.styleFrom(
                               backgroundColor: AppColors.inProgress,
-                              foregroundColor: Colors.white,
+                              foregroundColor: AppColors.actionFg,
                             ),
                             icon: const Icon(Icons.check, size: 16),
                             label: const Text('Mark Done'),
@@ -710,10 +710,6 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
 
                           // Save Changes
                           ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: AppColors.primary,
-                              foregroundColor: Colors.white,
-                            ),
                             onPressed: _submit,
                             child: const Text('Save'),
                           ),
@@ -733,8 +729,6 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
                       const SizedBox(width: 12),
                       ElevatedButton(
                         style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
                           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                         ),
                         onPressed: _submit,

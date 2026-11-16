@@ -20,7 +20,7 @@ class AutoScheduledTasksScreen extends ConsumerWidget {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Edit Auto-Scheduled Task'),
+          title: const Text('Edit recurring task'),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -28,7 +28,7 @@ class AutoScheduledTasksScreen extends ConsumerWidget {
               children: [
                 TextField(
                   controller: titleController,
-                  decoration: const InputDecoration(labelText: 'Task Title'),
+                  decoration: const InputDecoration(labelText: 'Title'),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -36,11 +36,11 @@ class AutoScheduledTasksScreen extends ConsumerWidget {
                   decoration: const InputDecoration(labelText: 'Description (optional)'),
                 ),
                 const SizedBox(height: 16),
-                const Text('Cadence & Interval:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const Text('Cadence', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    const Text('Every'),
+                    const Text('Every', style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
                     const SizedBox(width: 8),
                     DropdownButton<int>(
                       value: intervalVal,
@@ -65,13 +65,13 @@ class AutoScheduledTasksScreen extends ConsumerWidget {
                 ),
                 CheckboxListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text('After completion', style: TextStyle(fontSize: 12)),
+                  title: const Text('Schedule after completion', style: TextStyle(fontSize: 13)),
                   value: afterCompletion,
                   onChanged: (val) => setDialogState(() => afterCompletion = val ?? true),
                   controlAffinity: ListTileControlAffinity.leading,
                 ),
                 const SizedBox(height: 12),
-                const Text('Importance Level:', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                const Text('Importance level', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
                 const SizedBox(height: 8),
                 DropdownButton<int>(
                   value: baseImportance,
@@ -104,10 +104,10 @@ class AutoScheduledTasksScreen extends ConsumerWidget {
                 ref.read(recurrenceRulesProvider.notifier).updateRule(updated);
                 Navigator.of(ctx).pop();
                 ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('Auto-scheduled task updated!')),
+                  const SnackBar(content: Text('Recurring routine updated')),
                 );
               },
-              child: const Text('Save Changes'),
+              child: const Text('Save'),
             ),
           ],
         ),
@@ -119,8 +119,11 @@ class AutoScheduledTasksScreen extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Delete Auto-Scheduled Task?'),
-        content: Text('Are you sure you want to remove "${rule.title}"? Existing completed task records will remain in history.'),
+        title: const Text('Delete recurring routine'),
+        content: Text(
+          'Remove "${rule.title}"? Past completed records remain in history.',
+          style: const TextStyle(fontSize: 13, color: AppColors.textSecondary),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
@@ -132,7 +135,7 @@ class AutoScheduledTasksScreen extends ConsumerWidget {
               ref.read(recurrenceRulesProvider.notifier).deleteRule(rule.id);
               Navigator.of(ctx).pop();
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('Auto-scheduled task deleted.')),
+                const SnackBar(content: Text('Recurring routine deleted')),
               );
             },
             child: const Text('Delete'),
@@ -149,169 +152,175 @@ class AutoScheduledTasksScreen extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Auto-Scheduled Tasks Manager', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 17)),
+        shape: const Border(bottom: BorderSide(color: AppColors.border)),
+        title: const Text(
+          'Auto-scheduled tasks',
+          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 18),
+        ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          // Informational Banner
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: AppColors.primary.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppColors.primary.withValues(alpha: 0.3)),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.info_outline, color: AppColors.primary, size: 22),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Auto-scheduled tasks automatically spawn fresh active instances whenever marked completed or ignored, keeping recurring routines on track.',
-                    style: TextStyle(fontSize: 12, color: AppColors.textPrimary.withValues(alpha: 0.9)),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 18),
-
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 960),
+          child: ListView(
+            padding: const EdgeInsets.all(24),
             children: [
-              Text(
-                'Configured Recurring Routines (${rules.length})',
-                style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-              ),
-              if (profile.vacationModeEnabled)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: AppColors.level2.withValues(alpha: 0.2),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text('Vacation Active', style: TextStyle(fontSize: 11, color: AppColors.level2, fontWeight: FontWeight.bold)),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: AppColors.surface,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.border),
                 ),
-            ],
-          ),
-          const SizedBox(height: 12),
-
-          if (rules.isEmpty)
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Column(
+                child: const Row(
                   children: [
-                    Icon(Icons.repeat, size: 40, color: AppColors.textMuted.withValues(alpha: 0.4)),
-                    const SizedBox(height: 10),
-                    const Text('No auto-scheduled routines yet.', style: TextStyle(color: AppColors.textMuted)),
-                    const SizedBox(height: 4),
-                    const Text('Create recurring tasks from the Home Screen (+) button.', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                    Icon(Icons.info_outline, color: AppColors.textSecondary, size: 18),
+                    SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        'Auto-scheduled tasks spawn their next instance automatically when completed or ignored.',
+                        style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                      ),
+                    ),
                   ],
                 ),
               ),
-            )
-          else
-            ...rules.map((rule) {
-              final isFrozen = profile.isChoreFrozenInVacation(rule.id);
+              const SizedBox(height: 20),
 
-              return Card(
-                margin: const EdgeInsets.only(bottom: 10),
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    'Configured routines (${rules.length})',
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textPrimary,
+                    ),
+                  ),
+                  if (profile.vacationModeEnabled)
+                    Text(
+                      'Vacation mode active',
+                      style: AppTheme.mono(12, color: AppColors.level2),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 12),
+
+              if (rules.isEmpty)
+                Container(
+                  padding: const EdgeInsets.all(32),
+                  decoration: BoxDecoration(
+                    color: AppColors.surface,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: const Column(
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: BoxDecoration(
-                              color: (rule.isActive ? AppColors.primary : AppColors.textMuted).withValues(alpha: 0.15),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Icon(
-                              Icons.repeat,
-                              color: rule.isActive ? AppColors.primary : AppColors.textMuted,
-                              size: 18,
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        rule.title,
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 15,
-                                          color: rule.isActive ? AppColors.textPrimary : AppColors.textMuted,
-                                        ),
-                                      ),
-                                    ),
-                                    if (isFrozen) ...[
-                                      const SizedBox(width: 6),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                        decoration: BoxDecoration(
-                                          color: AppColors.overdue.withValues(alpha: 0.15),
-                                          borderRadius: BorderRadius.circular(4),
-                                        ),
-                                        child: const Text('Frozen (Vacation)', style: TextStyle(fontSize: 10, color: AppColors.overdue)),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                                const SizedBox(height: 3),
-                                Text(
-                                  rule.recurrenceSummary,
-                                  style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Switch(
-                            value: rule.isActive,
-                            activeThumbColor: AppColors.inProgress,
-                            onChanged: (_) => ref.read(recurrenceRulesProvider.notifier).toggleActive(rule.id),
-                          ),
-                        ],
+                      Icon(Icons.repeat, size: 32, color: AppColors.textMuted),
+                      SizedBox(height: 12),
+                      Text(
+                        'No auto-scheduled routines yet',
+                        style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
                       ),
-                      const SizedBox(height: 10),
-                      Row(
-                        children: [
-                          const Icon(Icons.calendar_today, size: 12, color: AppColors.textMuted),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Next due: ${DateFormat("MMM d, yyyy • h:mm a").format(rule.nextDueAt)}',
-                            style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-                          ),
-                          const Spacer(),
-                          // Edit Button
-                          TextButton.icon(
-                            icon: const Icon(Icons.edit, size: 14),
-                            label: const Text('Edit', style: TextStyle(fontSize: 12)),
-                            onPressed: () => _promptEditRule(context, ref, rule),
-                          ),
-                          // Delete Button
-                          IconButton(
-                            tooltip: 'Delete routine',
-                            icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.overdue),
-                            onPressed: () => _confirmDeleteRule(context, ref, rule),
-                          ),
-                        ],
+                      SizedBox(height: 4),
+                      Text(
+                        'Enable Recurring when creating a task to add one',
+                        style: TextStyle(fontSize: 12, color: AppColors.textMuted),
                       ),
                     ],
                   ),
-                ),
-              );
-            }),
-        ],
+                )
+              else
+                ...rules.map((rule) {
+                  final isFrozen = profile.isChoreFrozenInVacation(rule.id);
+
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Card(
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Icon(
+                                  Icons.repeat,
+                                  color: rule.isActive ? AppColors.primary : AppColors.textMuted,
+                                  size: 18,
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: Text(
+                                              rule.title,
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w500,
+                                                fontSize: 14,
+                                                color: rule.isActive
+                                                    ? AppColors.textPrimary
+                                                    : AppColors.textMuted,
+                                              ),
+                                            ),
+                                          ),
+                                          if (isFrozen) ...[
+                                            const SizedBox(width: 8),
+                                            Text(
+                                              'Paused',
+                                              style: AppTheme.mono(11, color: AppColors.overdue),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        rule.recurrenceSummary,
+                                        style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Switch(
+                                  value: rule.isActive,
+                                  activeThumbColor: AppColors.primary,
+                                  onChanged: (_) => ref.read(recurrenceRulesProvider.notifier).toggleActive(rule.id),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              children: [
+                                Text(
+                                  'Next ${DateFormat("MMM d, yyyy • h:mm a").format(rule.nextDueAt)}',
+                                  style: AppTheme.mono(12, color: AppColors.textMuted),
+                                ),
+                                const Spacer(),
+                                TextButton.icon(
+                                  icon: const Icon(Icons.edit_outlined, size: 14),
+                                  label: const Text('Edit'),
+                                  onPressed: () => _promptEditRule(context, ref, rule),
+                                ),
+                                IconButton(
+                                  tooltip: 'Delete routine',
+                                  icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.overdue),
+                                  onPressed: () => _confirmDeleteRule(context, ref, rule),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }),
+            ],
+          ),
+        ),
       ),
     );
   }
