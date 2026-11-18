@@ -43,13 +43,18 @@ class DatabaseService {
   final AppDatabase _db;
   final TaskRepository _repo;
   final _syncStatusController = StreamController<SyncStatus>.broadcast();
-  final _dataUpdatedController = StreamController<String>.broadcast();
+  final _dataUpdatedController = StreamController<int>.broadcast();
   final _taskGivenController = StreamController<TaskGivenAlert>.broadcast();
 
   SyncStatus _currentStatus = SyncStatus.offline;
   DateTime? _lastSyncTime;
   bool _isSyncing = false;
+  bool _resyncQueued = false;
+  String? _queuedUserId;
+  Future<void>? _activeSyncFuture;
+  int _dataRevision = 0;
   Timer? _debounceTimer;
+  Timer? _retryTimer;
   final List<UnsubscribeFunc> _unsubscribers = [];
 
   DatabaseService(this._pb, this._db, this._repo) {
@@ -60,7 +65,7 @@ class DatabaseService {
   DateTime? get lastSyncTime => _lastSyncTime;
   String get serverUrl => _pb.baseURL;
   Stream<SyncStatus> get syncStatusStream => _syncStatusController.stream;
-  Stream<String> get dataUpdatedStream => _dataUpdatedController.stream;
+  Stream<int> get dataUpdatedStream => _dataUpdatedController.stream;
   Stream<TaskGivenAlert> get taskGivenStream => _taskGivenController.stream;
 
   void _setStatus(SyncStatus status) {
@@ -71,33 +76,70 @@ class DatabaseService {
   }
 
   /// Two-way PocketBase <-> Drift synchronization with Last-Write-Wins (updatedAt).
-  Future<void> performCloudSync({String? userId}) async {
+  Future<void> performCloudSync({String? userId}) {
     final activeUserId = userId ?? _repo.activeUserId;
     if (activeUserId.isEmpty || !_pb.authStore.isValid) {
       _setStatus(SyncStatus.offline);
-      return;
+      return Future.value();
     }
-    if (_isSyncing) return;
+    if (_isSyncing) {
+      _resyncQueued = true;
+      _queuedUserId = activeUserId;
+      return _activeSyncFuture ?? Future.value();
+    }
 
+    final future = _runSyncLoop(activeUserId);
+    _activeSyncFuture = future;
+    return future;
+  }
+
+  Future<void> _runSyncLoop(String initialUserId) async {
     _isSyncing = true;
+    _retryTimer?.cancel();
     _setStatus(SyncStatus.syncing);
+    var currentUserId = initialUserId;
 
     try {
-      await _pushOutbox(activeUserId);
-      await _pullCollections(activeUserId);
-      await _repo.reloadFromDb(activeUserId);
+      while (true) {
+        _resyncQueued = false;
+        await _pushOutbox(currentUserId);
+        await _pullCollections(currentUserId);
+        await _repo.reloadFromDb(currentUserId);
 
-      _lastSyncTime = DateTime.now();
-      _setStatus(SyncStatus.synced);
-      if (!_dataUpdatedController.isClosed) {
-        _dataUpdatedController.add(activeUserId);
+        _lastSyncTime = DateTime.now();
+        _setStatus(SyncStatus.synced);
+        if (!_dataUpdatedController.isClosed) {
+          _dataUpdatedController.add(++_dataRevision);
+        }
+
+        if (!_resyncQueued) break;
+        currentUserId = _queuedUserId ?? currentUserId;
       }
     } catch (e) {
       debugPrint('PocketBase sync error: $e');
       _setStatus(SyncStatus.offline);
+      _scheduleRetryIfOutboxNonEmpty(currentUserId);
     } finally {
       _isSyncing = false;
+      _resyncQueued = false;
+      _queuedUserId = null;
+      _activeSyncFuture = null;
     }
+  }
+
+  Future<void> _scheduleRetryIfOutboxNonEmpty(String userId) async {
+    if (!_pb.authStore.isValid || _syncStatusController.isClosed) return;
+    final pending = await (_db.select(_db.syncOutbox)
+          ..where((o) => o.userId.equals(userId))
+          ..limit(1))
+        .get();
+    if (pending.isEmpty || _syncStatusController.isClosed) return;
+    _retryTimer?.cancel();
+    _retryTimer = Timer(const Duration(seconds: 10), () {
+      if (!_syncStatusController.isClosed) {
+        unawaited(performCloudSync(userId: userId));
+      }
+    });
   }
 
   Future<void> startRealtimeSync(String userId) async {
@@ -116,7 +158,6 @@ class DatabaseService {
     for (final col in collections) {
       try {
         final unsub = await _pb.collection(col).subscribe('*', (e) {
-          if (_isSyncing) return;
           _debounceTimer?.cancel();
           _debounceTimer = Timer(const Duration(milliseconds: 350), () {
             performCloudSync(userId: userId);
@@ -131,6 +172,7 @@ class DatabaseService {
 
   Future<void> stopRealtimeSync() async {
     _debounceTimer?.cancel();
+    _retryTimer?.cancel();
     for (final unsub in _unsubscribers) {
       try {
         await unsub();
@@ -347,8 +389,10 @@ class DatabaseService {
 
     // 3. Tasks
     final remoteTasks = await _pb.collection('tasks').getFullList(filter: filter);
+    final pendingTaskKeys = await _pendingOutboxKeys(userId, 'tasks');
     for (final rec in remoteTasks) {
       final clientId = rec.get<String>('clientId', rec.id);
+      if (pendingTaskKeys.contains(clientId)) continue;
       final remoteUpdated = _parseRemoteUpdated(rec);
       final local = await (_db.select(_db.localTasks)
             ..where((t) => t.id.equals(clientId) & t.userId.equals(userId)))
@@ -499,6 +543,13 @@ class DatabaseService {
     _syncStatusController.close();
     _dataUpdatedController.close();
     _taskGivenController.close();
+  }
+
+  Future<Set<String>> _pendingOutboxKeys(String userId, String collection) async {
+    final rows = await (_db.select(_db.syncOutbox)
+          ..where((o) => o.userId.equals(userId) & o.collectionName.equals(collection)))
+        .get();
+    return rows.map((r) => r.recordKey).toSet();
   }
 
   static DateTime _parseRemoteUpdated(RecordModel rec) {

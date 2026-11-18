@@ -18,7 +18,7 @@ final syncStatusProvider = StreamProvider<SyncStatus>((ref) {
   return dbService.syncStatusStream;
 });
 
-final cloudDataRevisionProvider = StreamProvider<String>((ref) {
+final cloudDataRevisionProvider = StreamProvider<int>((ref) {
   final dbService = ref.watch(databaseServiceProvider);
   return dbService.dataUpdatedStream;
 });

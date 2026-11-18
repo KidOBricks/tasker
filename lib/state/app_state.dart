@@ -466,10 +466,12 @@ class TasksNotifier extends Notifier<List<TaskItem>> {
             newState: result.archivedTask,
           );
     } else {
+      final completedSubtasks = task.subtasks.map((s) => s.copyWith(isCompleted: true)).toList();
       final completed = task.copyWith(
         status: TaskStatus.completed,
         completedAt: DateTime.now(),
         clearInProgressAt: true,
+        subtasks: completedSubtasks,
       );
       await updateTask(completed);
     }

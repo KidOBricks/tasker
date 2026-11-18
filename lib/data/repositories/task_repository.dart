@@ -113,7 +113,8 @@ class TaskRepository {
 
   Future<void> saveTasks(List<TaskItem> tasks) async {
     final uid = _activeUserId;
-    final previousIds = _tasks.map((t) => t.id).toSet();
+    final previousById = {for (final t in _tasks) t.id: t};
+    final previousIds = previousById.keys.toSet();
     final nextIds = tasks.map((t) => t.id).toSet();
     final deletedIds = previousIds.difference(nextIds);
     final now = DateTime.now().toUtc();
@@ -123,6 +124,10 @@ class TaskRepository {
 
     for (final task in tasks) {
       final normalized = task.userId == uid ? task : task.copyWith(userId: uid);
+      final previous = previousById[normalized.id];
+      if (previous != null && _sameTaskSyncFields(previous, normalized)) {
+        continue;
+      }
       await _db.into(_db.localTasks).insertOnConflictUpdate(
             LocalTasksCompanion.insert(
               id: normalized.id,
@@ -475,6 +480,33 @@ class TaskRepository {
         createdAt: now.subtract(const Duration(days: 20)),
       ),
     ]);
+  }
+
+  static bool _sameTaskSyncFields(TaskItem a, TaskItem b) {
+    if (a.userId != b.userId ||
+        a.title != b.title ||
+        a.description != b.description ||
+        a.categoryId != b.categoryId ||
+        a.baseImportance != b.baseImportance ||
+        a.status != b.status ||
+        a.recurrenceRuleId != b.recurrenceRuleId ||
+        a.calendarEventId != b.calendarEventId ||
+        a.givenById != b.givenById ||
+        a.givenByName != b.givenByName ||
+        a.dueDate?.toUtc().millisecondsSinceEpoch != b.dueDate?.toUtc().millisecondsSinceEpoch ||
+        a.createdAt.toUtc().millisecondsSinceEpoch != b.createdAt.toUtc().millisecondsSinceEpoch ||
+        a.completedAt?.toUtc().millisecondsSinceEpoch != b.completedAt?.toUtc().millisecondsSinceEpoch ||
+        a.ignoredAt?.toUtc().millisecondsSinceEpoch != b.ignoredAt?.toUtc().millisecondsSinceEpoch ||
+        a.inProgressAt?.toUtc().millisecondsSinceEpoch != b.inProgressAt?.toUtc().millisecondsSinceEpoch) {
+      return false;
+    }
+    if (json.encode(a.attachmentPaths) != json.encode(b.attachmentPaths) ||
+        json.encode(a.emailRef) != json.encode(b.emailRef) ||
+        json.encode(a.subtasks.map((s) => s.toMap()).toList()) !=
+            json.encode(b.subtasks.map((s) => s.toMap()).toList())) {
+      return false;
+    }
+    return true;
   }
 
   static TaskItem _rowToTask(LocalTask row) {
