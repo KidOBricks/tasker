@@ -1,10 +1,10 @@
 import 'dart:async';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../../domain/models/task_item.dart';
 import '../../domain/models/user_profile.dart';
 import 'database_service.dart';
+import 'platform_notifier_io.dart'
+    if (dart.library.js_interop) 'platform_notifier_web.dart';
 
 class PendingReminder {
   final String key;
@@ -21,7 +21,6 @@ class PendingReminder {
 }
 
 class NotificationService {
-  final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   final StreamController<PendingReminder> _inAppController = StreamController<PendingReminder>.broadcast();
   final Set<String> _firedKeys = {};
   bool _initialized = false;
@@ -29,39 +28,12 @@ class NotificationService {
   Stream<PendingReminder> get inAppAlerts => _inAppController.stream;
 
   Future<void> initialize() async {
-    if (_initialized) return;
-    try {
-      const settings = InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-        windows: WindowsInitializationSettings(
-          appName: 'Tasker',
-          appUserModelId: 'KidOBricks.Tasker.Desktop',
-          guid: '8c5b1b5d-6f4a-4b67-9c12-1e3c4d5e6f70',
-        ),
-        web: WebInitializationSettings(),
-      );
-      await _plugin.initialize(settings: settings);
-      _initialized = true;
-    } catch (e) {
-      debugPrint('NotificationService init skipped: $e');
-    }
+    _initialized = true;
   }
 
   Future<bool> requestPermissions() async {
     await initialize();
-    try {
-      if (kIsWeb) {
-        final webPlugin = _plugin.resolvePlatformSpecificImplementation<WebFlutterLocalNotificationsPlugin>();
-        return await webPlugin?.requestNotificationsPermission() ?? false;
-      }
-      if (defaultTargetPlatform == TargetPlatform.android) {
-        final androidPlugin = _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
-        return await androidPlugin?.requestNotificationsPermission() ?? false;
-      }
-      return true;
-    } catch (_) {
-      return false;
-    }
+    return requestPlatformNotificationPermission();
   }
 
   /// Pure reminder evaluation helper for unit testing and periodic checks.
@@ -169,27 +141,11 @@ class NotificationService {
     } catch (_) {}
 
     if (!_initialized) return;
-    try {
-      await _plugin.show(
-        id: reminder.key.hashCode & 0x7FFFFFFF,
-        title: reminder.title,
-        body: reminder.body,
-        notificationDetails: const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'tasker_reminders',
-            'Task Reminders',
-            channelDescription: 'Upcoming deadlines, daily reviews, and assigned tasks',
-            importance: Importance.high,
-            priority: Priority.high,
-          ),
-          windows: WindowsNotificationDetails(),
-          web: WebNotificationDetails(),
-        ),
-      );
-    } catch (e) {
-      // Web throws if browser notification permission hasn't been granted yet; in-app banner still displays.
-      debugPrint('OS notification skipped: $e');
-    }
+    await showPlatformNotification(
+      id: reminder.key.hashCode & 0x7FFFFFFF,
+      title: reminder.title,
+      body: reminder.body,
+    );
   }
 
   void dispose() {
