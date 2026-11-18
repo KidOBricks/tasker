@@ -2,15 +2,13 @@
 
 > Cross-platform Flutter/Dart task manager and calendar/email orchestrator (`Windows | Android | Linux | Web`).
 
-## Critical Branch Status (Read First)
-- **`main` (current base)**: Holds the initial Flutter v1 prototype (`SharedPreferences` local storage, simulated/stubbed cloud sync & email/calendar services, and `web/admin.html`).
-- **Open PR #1 — `feat/production-pocketbase-sync`** (`https://github.com/KidOBricks/tasker/pull/1`): Contains the major production architecture rewrite (not yet merged to `main`):
+## Current Branch & Architecture Status
+- **`main` (updated via PR #1 `ded6f6e`)**: Now holds the full production architecture (`feat/production-pocketbase-sync` merged Nov 18, 2026):
   - Go **PocketBase** backend (`backend/`) with AES-256-GCM encrypted OAuth tokens, scheduled Google Calendar / Outlook / Gmail sync, and pluggable LLM task extraction.
-  - **Drift (SQLite)** offline-first sync engine with outbox queue, Last-Write-Wins, and PocketBase Realtime SSE.
-  - **Warm Graphite** UI redesign + self-hosted CanvasKit web shell.
+  - **Drift (SQLite)** offline-first sync engine (`lib/data/local/`) with outbox queue, Last-Write-Wins, and PocketBase Realtime SSE.
+  - **Warm Graphite** UI redesign + self-hosted CanvasKit web shell (`web/`).
   - **OCI `sslip.io` + Caddy** deployment scripts (`deploy/`) and GitHub Actions CI/CD (`.github/workflows/ci.yml`).
-  - Removal of mocked `web/admin.html` and `AdminConsoleScreen` in favor of PocketBase `/_/`.
-- **Before starting new feature work**, check whether PR #1 has been merged or check out `feat/production-pocketbase-sync` (`git fetch origin feat/production-pocketbase-sync && git checkout feat/production-pocketbase-sync`).
+  - Mocked `web/admin.html` and `AdminConsoleScreen` removed in favor of PocketBase `/_/`.
 
 ---
 
@@ -41,13 +39,14 @@
 
 ## Common Commands
 ```bash
-# Install dependencies
-flutter pub get
+# Backend (Go + PocketBase)
+cd backend
+go test -v ./...
+go run . serve --http=127.0.0.1:8090
 
-# Static analysis & tests (v1 on main: 26 tests; PR #1: 23 Flutter tests + Go tests)
+# Frontend (Flutter + Drift)
+flutter pub get
 flutter analyze
 flutter test
-
-# Run locally
-flutter run -d windows   # or linux / android / chrome
+flutter run -d windows --dart-define=TASKER_API_URL=http://127.0.0.1:8090  # or chrome / android / linux
 ```

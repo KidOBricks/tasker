@@ -1,6 +1,6 @@
 # Tasker Implementation Plan: OCI PocketBase + Drift Offline Sync + Live Integrations
 
-> **Status**: Implemented in open PR #1 (`feat/production-pocketbase-sync`: https://github.com/KidOBricks/tasker/pull/1).
+> **Status**: Implemented and merged to `main` via PR #1 (`ded6f6e`, https://github.com/KidOBricks/tasker/pull/1).
 
 ## Locked-In Architecture & Design Decisions
 
