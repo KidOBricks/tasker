@@ -163,3 +163,24 @@ func TestSignVerifyStateAndRedirectSanitizer(t *testing.T) {
 		t.Fatalf("expected app deep link to be allowed, got %q", got)
 	}
 }
+
+func TestRegisterRoutesDoesNotConflictWithHealth(t *testing.T) {
+	app, err := tests.NewTestApp()
+	if err != nil {
+		t.Fatalf("NewTestApp failed: %v", err)
+	}
+	defer app.Cleanup()
+
+	svc := &Service{App: app, PublicURL: "https://1-2-3-4.sslip.io"}
+	scenario := tests.ApiScenario{
+		Name:   "integrations health endpoint",
+		Method: http.MethodGet,
+		URL:    "/api/integrations/health",
+		BeforeTestFunc: func(t testing.TB, app *tests.TestApp, e *core.ServeEvent) {
+			svc.RegisterRoutes(e)
+		},
+		ExpectedStatus:  http.StatusOK,
+		ExpectedContent: []string{`"status":"ok"`, `"publicUrl":"https://1-2-3-4.sslip.io"`},
+	}
+	scenario.Test(t)
+}

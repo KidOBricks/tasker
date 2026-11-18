@@ -48,7 +48,7 @@ echo "==> Configuring Tasker for domain: ${TASKER_PUBLIC_URL}"
 
 # 1. Install base dependencies & Caddy
 apt-get update -y
-apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl openssl ufw
+apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl openssl ufw rsync
 
 if ! command -v caddy >/dev/null 2>&1; then
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg

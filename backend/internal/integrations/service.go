@@ -104,8 +104,8 @@ func NewServiceFromEnv(app core.App) (*Service, error) {
 }
 
 func (s *Service) RegisterRoutes(se *core.ServeEvent) {
-	// Health endpoint
-	se.Router.GET("/api/health", func(e *core.RequestEvent) error {
+	// Integrations health endpoint (PocketBase already reserves GET /api/health)
+	se.Router.GET("/api/integrations/health", func(e *core.RequestEvent) error {
 		return e.JSON(http.StatusOK, map[string]any{
 			"status":     "ok",
 			"publicUrl":  s.PublicURL,
