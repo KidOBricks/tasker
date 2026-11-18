@@ -141,6 +141,7 @@ jobs:
       - name: Upload Release Assets
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           TAG="v1.0.${{ github.run_number }}"
           APK="release/tasker-${TAG}.apk"
@@ -151,6 +152,7 @@ jobs:
             gh release upload "$TAG" "$APK" "$WIN" --clobber
           else
             gh release create "$TAG" "$APK" "$WIN" \
+              --target "${{ github.sha }}" \
               --title "Tasker $TAG" \
               --notes "Automated Android APK and Windows x64 builds from commit ${GITHUB_SHA::7}." \
               --latest
