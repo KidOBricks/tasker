@@ -44,8 +44,13 @@ dependencies:
   shared_preferences: ^2.5.6
   google_fonts: ^9.0.0
   http: ^1.6.0
-  google_generative_ai: ^0.4.7
-
+  pocketbase: ^0.26.0
+  drift: ^2.35.4
+  drift_flutter: ^0.3.1
+  sqlite3_flutter_libs: ^0.6.0+eol
+  path: ^1.9.1
+  url_launcher: ^6.3.3
+  app_links: ^7.2.2
 dev_dependencies:
   flutter_test:
     sdk: flutter
@@ -56,6 +61,8 @@ dev_dependencies:
   # package. See that file for information about deactivating specific lint
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
+  drift_dev: ^2.35.3
+  build_runner: ^2.17.1
 
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec

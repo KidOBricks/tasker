@@ -1,16 +1,15 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../theme/app_theme.dart';
-import '../screens/home/home_screen.dart';
-import '../screens/calendar/calendar_screen.dart';
-import '../screens/progress/progress_screen.dart';
-import '../screens/ideas/ideas_screen.dart';
-import '../screens/settings/settings_screen.dart';
-import '../screens/admin/admin_console_screen.dart';
-import '../screens/auth/auth_screen.dart';
+import '../../data/services/database_service.dart';
 import '../../state/app_state.dart';
 import '../../state/auth_state.dart';
+import '../screens/auth/auth_screen.dart';
+import '../screens/calendar/calendar_screen.dart';
+import '../screens/home/home_screen.dart';
+import '../screens/ideas/ideas_screen.dart';
+import '../screens/progress/progress_screen.dart';
+import '../screens/settings/settings_screen.dart';
+import '../theme/app_theme.dart';
 
 class AdaptiveScaffold extends ConsumerStatefulWidget {
   const AdaptiveScaffold({super.key});
@@ -22,305 +21,471 @@ class AdaptiveScaffold extends ConsumerStatefulWidget {
 class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
   int _selectedIndex = 0;
 
-  void _navigateToSettings() {
-    setState(() => _selectedIndex = 4);
+  void _navigateTo(int index) {
+    if (_selectedIndex != index) {
+      setState(() => _selectedIndex = index);
+    }
   }
 
   void _confirmSignOut(BuildContext context) {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Sign Out'),
-        content: const Text('Are you sure you want to sign out? Your tasks are backed up in the cloud.'),
+        title: const Text('Sign out'),
+        content: const Text(
+          'Your local SQLite cache stays on this device until your next sign-in',
+          style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: AppColors.overdue, foregroundColor: Colors.white),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.overdue,
+              foregroundColor: Colors.white,
+            ),
             onPressed: () {
               Navigator.of(ctx).pop();
               ref.read(authProvider.notifier).signOut();
             },
-            child: const Text('Sign Out'),
+            child: const Text('Sign out'),
           ),
         ],
       ),
     );
   }
 
+  static Color _syncColor(SyncStatus status) {
+    switch (status) {
+      case SyncStatus.synced:
+        return AppColors.inProgress;
+      case SyncStatus.syncing:
+        return AppColors.primary;
+      case SyncStatus.offline:
+        return AppColors.textMuted;
+      case SyncStatus.error:
+        return AppColors.overdue;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final currentUser = ref.watch(authProvider);
 
-    // If user is unauthenticated, show AuthScreen (Sign in / Sign up)
     if (currentUser == null) {
       return const AuthScreen();
     }
 
     final sectioned = ref.watch(sectionedTasksProvider);
+    final syncStatus = ref.watch(syncStatusProvider).value ?? SyncStatus.offline;
     final overdueCount = sectioned.overdueTasks.length;
-    final isDesktop = MediaQuery.of(context).size.width >= 800;
-    final isAdmin = currentUser.isAdmin;
-    // Admin panel is restricted to the Web App for enterprise management;
-    // Native Windows & Android clients are clean regular user apps.
-    final showAdminTab = kIsWeb && isAdmin;
+    final isDesktop = MediaQuery.of(context).size.width >= 840;
 
-    final screens = [
-      const HomeScreen(),
-      const CalendarScreen(),
-      const ProgressScreen(),
-      const IdeasScreen(),
-      const SettingsScreen(),
-      if (showAdminTab) const AdminConsoleScreen(),
+    const screens = [
+      HomeScreen(),
+      CalendarScreen(),
+      ProgressScreen(),
+      IdeasScreen(),
+      SettingsScreen(),
     ];
 
     if (_selectedIndex >= screens.length) {
       _selectedIndex = 0;
     }
 
+    final statusColor = _syncColor(syncStatus);
+
     if (isDesktop) {
-      // Desktop Multi-Pane Layout (Windows & Linux)
       return Scaffold(
         body: Row(
           children: [
-            // Left Navigation Rail
-            NavigationRail(
-              backgroundColor: AppColors.surface,
-              selectedIndex: _selectedIndex,
-              onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
-              labelType: NavigationRailLabelType.all,
-              leading: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                child: Column(
-                  children: [
-                    // User Profile Avatar & Name (Clicking launches Settings/Profile)
-                    Tooltip(
-                      message: 'Click to open Profile & Settings',
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(12),
-                        onTap: _navigateToSettings,
-                        child: Container(
-                          padding: const EdgeInsets.all(6),
-                          decoration: BoxDecoration(
-                            color: _selectedIndex == 4
-                                ? AppColors.primary.withValues(alpha: 0.25)
-                                : Colors.transparent,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: _selectedIndex == 4 ? AppColors.primary : AppColors.border,
+            Container(
+              width: 240,
+              decoration: const BoxDecoration(
+                color: AppColors.sidebar,
+                border: Border(right: BorderSide(color: AppColors.border)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // Workspace header + live sync dot signature
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const TaskerMark(size: 24),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                              child: Text(
+                                'Tasker',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(
+                                color: statusColor,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                syncStatus.displayName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: AppTheme.mono(11, color: AppColors.textMuted),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: Divider(),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Primary navigation items (36px rows, 4px vertical gap)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Column(
+                      children: [
+                        _SidebarItem(
+                          icon: Icons.task_alt,
+                          label: 'Tasks',
+                          selected: _selectedIndex == 0,
+                          trailingCount: overdueCount > 0 ? overdueCount : null,
+                          trailingColor: AppColors.overdue,
+                          onTap: () => _navigateTo(0),
+                        ),
+                        const SizedBox(height: 4),
+                        _SidebarItem(
+                          icon: Icons.calendar_month_outlined,
+                          label: 'Calendar',
+                          selected: _selectedIndex == 1,
+                          onTap: () => _navigateTo(1),
+                        ),
+                        const SizedBox(height: 4),
+                        _SidebarItem(
+                          icon: Icons.bar_chart_outlined,
+                          label: 'Progress',
+                          selected: _selectedIndex == 2,
+                          onTap: () => _navigateTo(2),
+                        ),
+                        const SizedBox(height: 4),
+                        _SidebarItem(
+                          icon: Icons.lightbulb_outline,
+                          label: 'Ideas',
+                          selected: _selectedIndex == 3,
+                          onTap: () => _navigateTo(3),
+                        ),
+                        const SizedBox(height: 4),
+                        _SidebarItem(
+                          icon: Icons.settings_outlined,
+                          label: 'Profile',
+                          selected: _selectedIndex == 4,
+                          onTap: () => _navigateTo(4),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const Spacer(),
+
+                  // User footer
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: const BoxDecoration(
+                      border: Border(top: BorderSide(color: AppColors.border)),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(8),
+                            onTap: () => _navigateTo(4),
+                            child: Row(
+                              children: [
+                                CircleAvatar(
+                                  radius: 14,
+                                  backgroundColor: AppColors.surfaceLight,
+                                  child: Text(
+                                    currentUser.displayName.isNotEmpty
+                                        ? currentUser.displayName[0].toUpperCase()
+                                        : 'U',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                      color: AppColors.textPrimary,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        currentUser.displayName,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                          color: AppColors.textPrimary,
+                                        ),
+                                      ),
+                                      Text(
+                                        currentUser.email,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          color: AppColors.textMuted,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          child: Column(
-                            children: [
-                              CircleAvatar(
-                                radius: 18,
-                                backgroundColor: isAdmin ? AppColors.primary : const Color(0xFF64748B),
-                                child: Text(
-                                  currentUser.displayName.isNotEmpty ? currentUser.displayName[0] : 'U',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.white,
-                                    fontSize: 14,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              SizedBox(
-                                width: 56,
-                                child: Text(
-                                  currentUser.displayName.split(' ').first,
-                                  textAlign: TextAlign.center,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppColors.textPrimary,
-                                  ),
-                                ),
-                              ),
-                              if (isAdmin)
-                                Container(
-                                  margin: const EdgeInsets.only(top: 2),
-                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.primary.withValues(alpha: 0.2),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text('ADMIN', style: TextStyle(fontSize: 8, fontWeight: FontWeight.bold, color: AppColors.primary)),
-                                ),
-                            ],
-                          ),
                         ),
-                      ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          tooltip: 'Sign out',
+                          visualDensity: VisualDensity.compact,
+                          icon: const Icon(Icons.logout, size: 16, color: AppColors.textMuted),
+                          onPressed: () => _confirmSignOut(context),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 6),
-                    // Sign out icon
-                    IconButton(
-                      tooltip: 'Sign Out',
-                      icon: const Icon(Icons.logout, size: 16, color: AppColors.textMuted),
-                      onPressed: () => _confirmSignOut(context),
-                    ),
-                    const Divider(color: AppColors.border, indent: 12, endIndent: 12),
-                  ],
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1160),
+                  child: screens[_selectedIndex],
                 ),
               ),
-              destinations: [
-                NavigationRailDestination(
-                  icon: Badge(
-                    isLabelVisible: overdueCount > 0,
-                    label: Text('$overdueCount'),
-                    backgroundColor: AppColors.overdue,
-                    child: const Icon(Icons.task_alt),
-                  ),
-                  selectedIcon: const Icon(Icons.task_alt, color: AppColors.primary),
-                  label: const Text('Tasks'),
-                ),
-                const NavigationRailDestination(
-                  icon: Icon(Icons.calendar_month_outlined),
-                  selectedIcon: Icon(Icons.calendar_month, color: AppColors.primary),
-                  label: Text('Calendar'),
-                ),
-                const NavigationRailDestination(
-                  icon: Icon(Icons.bar_chart_outlined),
-                  selectedIcon: Icon(Icons.bar_chart, color: AppColors.primary),
-                  label: Text('Progress'),
-                ),
-                const NavigationRailDestination(
-                  icon: Icon(Icons.lightbulb_outline),
-                  selectedIcon: Icon(Icons.lightbulb, color: AppColors.primary),
-                  label: Text('Ideas'),
-                ),
-                const NavigationRailDestination(
-                  icon: Icon(Icons.settings_outlined),
-                  selectedIcon: Icon(Icons.settings, color: AppColors.primary),
-                  label: Text('Profile'),
-                ),
-                if (showAdminTab)
-                  const NavigationRailDestination(
-                    icon: Icon(Icons.admin_panel_settings_outlined),
-                    selectedIcon: Icon(Icons.admin_panel_settings, color: AppColors.primary),
-                    label: Text('Admin'),
-                  ),
-              ],
-            ),
-            const VerticalDivider(width: 1, color: AppColors.border),
-
-            // Main Active Screen Content
-            Expanded(
-              child: screens[_selectedIndex],
             ),
           ],
         ),
       );
     }
 
-    // Mobile Portrait Layout (Android)
     return Scaffold(
       appBar: AppBar(
-        title: Row(
+        backgroundColor: AppColors.sidebar,
+        shape: const Border(bottom: BorderSide(color: AppColors.border)),
+        title: const Row(
           children: [
-            Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: AppColors.primary.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(8),
+            TaskerMark(size: 24),
+            SizedBox(width: 8),
+            Text(
+              'Tasker',
+              style: TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 16,
+                color: AppColors.textPrimary,
               ),
-              child: const Icon(Icons.sync_alt, color: AppColors.primary, size: 16),
             ),
-            const SizedBox(width: 8),
-            const Text('Tasker', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
           ],
         ),
         actions: [
-          // Cloud Sync Indicator
-          const Row(
+          Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.cloud_done, size: 14, color: AppColors.inProgress),
-              SizedBox(width: 4),
-              Text('Cloud Synced', style: TextStyle(fontSize: 10, color: AppColors.inProgress)),
+              Container(
+                width: 6,
+                height: 6,
+                decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 6),
+              Text(syncStatus.displayName, style: AppTheme.mono(11, color: AppColors.textMuted)),
             ],
           ),
-          const SizedBox(width: 10),
-          // User Avatar on Mobile Top Bar (Clicking launches Profile/Settings)
-          Tooltip(
-            message: 'Profile & Settings',
-            child: InkWell(
-              borderRadius: BorderRadius.circular(20),
-              onTap: _navigateToSettings,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: Row(
-                  children: [
-                    CircleAvatar(
-                      radius: 14,
-                      backgroundColor: isAdmin ? AppColors.primary : const Color(0xFF64748B),
-                      child: Text(
-                        currentUser.displayName.isNotEmpty ? currentUser.displayName[0] : 'U',
-                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    Text(
-                      currentUser.displayName.split(' ').first,
-                      style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textPrimary),
-                    ),
-                  ],
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: 'Profile',
+            onPressed: () => _navigateTo(4),
+            icon: CircleAvatar(
+              radius: 13,
+              backgroundColor: AppColors.surfaceLight,
+              child: Text(
+                currentUser.displayName.isNotEmpty
+                    ? currentUser.displayName[0].toUpperCase()
+                    : 'U',
+                style: const TextStyle(
+                  color: AppColors.textPrimary,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
             ),
           ),
           IconButton(
-            tooltip: 'Sign Out',
-            icon: const Icon(Icons.logout, size: 18),
+            tooltip: 'Sign out',
+            icon: const Icon(Icons.logout, size: 16, color: AppColors.textMuted),
             onPressed: () => _confirmSignOut(context),
           ),
         ],
       ),
       body: screens[_selectedIndex],
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (idx) => setState(() => _selectedIndex = idx),
-        backgroundColor: AppColors.surface,
-        indicatorColor: AppColors.primary.withValues(alpha: 0.22),
-        destinations: [
-          NavigationDestination(
-            icon: Badge(
-              isLabelVisible: overdueCount > 0,
-              label: Text('$overdueCount'),
-              backgroundColor: AppColors.overdue,
-              child: const Icon(Icons.task_alt),
+      bottomNavigationBar: Container(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: AppColors.border)),
+        ),
+        child: NavigationBar(
+          height: 64,
+          selectedIndex: _selectedIndex,
+          onDestinationSelected: _navigateTo,
+          backgroundColor: AppColors.sidebar,
+          indicatorColor: AppColors.surfaceLight,
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+          destinations: [
+            NavigationDestination(
+              icon: Badge(
+                isLabelVisible: overdueCount > 0,
+                offset: const Offset(10, -6),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                label: Text(
+                  '$overdueCount',
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white),
+                ),
+                backgroundColor: AppColors.overdue,
+                child: const Icon(Icons.task_alt, size: 18),
+              ),
+              selectedIcon: Badge(
+                isLabelVisible: overdueCount > 0,
+                offset: const Offset(10, -6),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                label: Text(
+                  '$overdueCount',
+                  style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Colors.white),
+                ),
+                backgroundColor: AppColors.overdue,
+                child: const Icon(Icons.task_alt, size: 18, color: AppColors.primary),
+              ),
+              label: 'Tasks',
             ),
-            label: 'Tasks',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.calendar_month_outlined),
-            selectedIcon: Icon(Icons.calendar_month, color: AppColors.primary),
-            label: 'Calendar',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.bar_chart_outlined),
-            selectedIcon: Icon(Icons.bar_chart, color: AppColors.primary),
-            label: 'Progress',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.lightbulb_outline),
-            selectedIcon: Icon(Icons.lightbulb, color: AppColors.primary),
-            label: 'Ideas',
-          ),
-          const NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person, color: AppColors.primary),
-            label: 'Profile',
-          ),
-          if (showAdminTab)
             const NavigationDestination(
-              icon: Icon(Icons.admin_panel_settings_outlined),
-              selectedIcon: Icon(Icons.admin_panel_settings, color: AppColors.primary),
-              label: 'Admin',
+              icon: Icon(Icons.calendar_month_outlined, size: 18),
+              selectedIcon: Icon(Icons.calendar_month, size: 18, color: AppColors.primary),
+              label: 'Calendar',
             ),
-        ],
+            const NavigationDestination(
+              icon: Icon(Icons.bar_chart_outlined, size: 18),
+              selectedIcon: Icon(Icons.bar_chart, size: 18, color: AppColors.primary),
+              label: 'Progress',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.lightbulb_outline, size: 18),
+              selectedIcon: Icon(Icons.lightbulb, size: 18, color: AppColors.primary),
+              label: 'Ideas',
+            ),
+            const NavigationDestination(
+              icon: Icon(Icons.settings_outlined, size: 18),
+              selectedIcon: Icon(Icons.settings, size: 18, color: AppColors.primary),
+              label: 'Profile',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SidebarItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool selected;
+  final int? trailingCount;
+  final Color? trailingColor;
+  final VoidCallback onTap;
+
+  const _SidebarItem({
+    required this.icon,
+    required this.label,
+    required this.selected,
+    this.trailingCount,
+    this.trailingColor,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: selected ? AppColors.surfaceLight : Colors.transparent,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(8),
+        hoverColor: AppColors.surface,
+        onTap: onTap,
+        child: Container(
+          height: 36,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: selected ? Border.all(color: AppColors.border) : null,
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 20,
+                child: Icon(
+                  icon,
+                  size: 16,
+                  color: selected ? AppColors.primary : AppColors.textMuted,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: selected ? FontWeight.w500 : FontWeight.w400,
+                    color: selected ? AppColors.textPrimary : AppColors.textSecondary,
+                  ),
+                ),
+              ),
+              if (trailingCount != null)
+                Text(
+                  '$trailingCount',
+                  style: AppTheme.mono(
+                    12,
+                    color: trailingColor ?? AppColors.textMuted,
+                    weight: FontWeight.w500,
+                  ),
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }

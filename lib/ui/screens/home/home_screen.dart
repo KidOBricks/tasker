@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import '../../../domain/models/task_item.dart';
 import '../../../domain/models/category_item.dart';
 import '../../../domain/models/recurrence_rule.dart';
+import '../../../domain/models/task_item.dart';
 import '../../../state/app_state.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/celebration_confetti.dart';
-import 'widgets/task_item_tile.dart';
 import 'widgets/add_edit_task_dialog.dart';
+import 'widgets/task_item_tile.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -18,14 +18,11 @@ class HomeScreen extends ConsumerStatefulWidget {
 }
 
 class _HomeScreenState extends ConsumerState<HomeScreen> {
-  // Expansion states for accordions
   bool _overdueExpanded = true;
   bool _inProgressExpanded = true;
   final Map<int, bool> _levelExpansionMap = {};
 
-  bool _isLevelExpanded(int level) {
-    return _levelExpansionMap[level] ?? true;
-  }
+  bool _isLevelExpanded(int level) => _levelExpansionMap[level] ?? true;
 
   void _toggleLevelExpanded(int level) {
     setState(() {
@@ -92,10 +89,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Maximum in-progress task limit reached (${profile.maxInProgressTasks}). Complete or unmark an active task first.',
+            'Active task limit reached (${profile.maxInProgressTasks}). Finish or pause an active task first.',
           ),
-          backgroundColor: AppColors.level2,
-          behavior: SnackBarBehavior.floating,
         ),
       );
     }
@@ -110,30 +105,36 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           return AlertDialog(
             title: const Row(
               children: [
-                Icon(Icons.history, color: AppColors.primary),
+                Icon(Icons.history, size: 18, color: AppColors.textSecondary),
                 SizedBox(width: 8),
-                Text('Task Activity & Undo'),
+                Text('Task activity & undo'),
               ],
             ),
             content: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 500, maxHeight: 450),
+              constraints: const BoxConstraints(maxWidth: 500, maxHeight: 440),
               child: liveHistory.isEmpty
                   ? const Center(
-                      child: Text('No recent task activities yet.', style: TextStyle(color: AppColors.textMuted)),
+                      child: Text(
+                        'No recent task activity',
+                        style: TextStyle(fontSize: 13, color: AppColors.textMuted),
+                      ),
                     )
                   : ListView.separated(
                       shrinkWrap: true,
                       itemCount: liveHistory.length,
-                      separatorBuilder: (context, index) => const Divider(color: AppColors.border, height: 1),
+                      separatorBuilder: (_, _) => const Divider(),
                       itemBuilder: (context, idx) {
                         final item = liveHistory[idx];
                         return ListTile(
                           contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 4),
                           leading: _buildHistoryIcon(item.action),
-                          title: Text(item.description, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                          title: Text(
+                            item.description,
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                          ),
                           subtitle: Text(
                             DateFormat('h:mm a • MMM d').format(item.timestamp),
-                            style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
+                            style: AppTheme.mono(11, color: AppColors.textMuted),
                           ),
                           trailing: TextButton.icon(
                             icon: const Icon(Icons.undo, size: 14),
@@ -142,7 +143,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                               ref.read(tasksProvider.notifier).undoHistoryAction(item.id);
                               ScaffoldMessenger.of(context).showSnackBar(
                                 const SnackBar(
-                                  content: Text('Action undone successfully!'),
+                                  content: Text('Action reverted'),
                                   duration: Duration(seconds: 2),
                                 ),
                               );
@@ -170,77 +171,81 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     switch (action) {
       case 'completed':
-        icon = Icons.check_circle;
+        icon = Icons.check_circle_outline;
         color = AppColors.inProgress;
         break;
       case 'in_progress':
-        icon = Icons.play_circle;
+        icon = Icons.play_circle_outline;
         color = AppColors.inProgress;
         break;
       case 'ignored':
-        icon = Icons.visibility_off;
+        icon = Icons.visibility_off_outlined;
         color = AppColors.textMuted;
         break;
       case 'deleted':
-        icon = Icons.delete;
+        icon = Icons.delete_outline;
         color = AppColors.overdue;
         break;
       case 'created':
-        icon = Icons.add_circle;
+        icon = Icons.add_circle_outline;
         color = AppColors.primary;
         break;
       default:
-        icon = Icons.edit;
+        icon = Icons.edit_outlined;
         color = AppColors.level2;
     }
 
     return Container(
-      padding: const EdgeInsets.all(6),
+      width: 28,
+      height: 28,
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
+        color: color.withValues(alpha: 0.12),
         shape: BoxShape.circle,
       ),
+      alignment: Alignment.center,
       child: Icon(icon, size: 16, color: color),
     );
   }
 
   void _promptCreateCategory() {
     final textController = TextEditingController();
-    int selectedColor = 0xFF8B5CF6; // Purple
+    int selectedColor = 0xFF3CA89C;
 
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Create New Category'),
+          title: const Text('New category'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               TextField(
                 controller: textController,
                 autofocus: true,
                 decoration: const InputDecoration(
-                  labelText: 'Category Name',
-                  hintText: 'e.g., Fitness, Reading, Finance',
+                  labelText: 'Category name',
+                  hintText: 'Fitness, Reading, Finance',
                 ),
               ),
               const SizedBox(height: 16),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text('Choose Color', style: TextStyle(fontSize: 12, color: AppColors.textSecondary)),
+              const Text(
+                'Marker color',
+                style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
               ),
               const SizedBox(height: 8),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  0xFF8B5CF6, // Purple
-                  0xFFEC4899, // Pink
-                  0xFF14B8A6, // Teal
-                  0xFFF97316, // Orange
-                  0xFF06B6D4, // Cyan
+                  0xFF3CA89C, // Mineral teal
+                  0xFF3EB489, // Sage emerald
+                  0xFFE09F3E, // Warm amber
+                  0xFF5E94D4, // Slate cobalt
+                  0xFFD97757, // Terracotta
                 ].map((colorVal) {
                   final isSelected = selectedColor == colorVal;
-                  return GestureDetector(
+                  return InkWell(
+                    borderRadius: BorderRadius.circular(16),
                     onTap: () => setDialogState(() => selectedColor = colorVal),
                     child: Container(
                       width: 32,
@@ -248,7 +253,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       decoration: BoxDecoration(
                         color: Color(colorVal),
                         shape: BoxShape.circle,
-                        border: isSelected ? Border.all(color: Colors.white, width: 2.5) : null,
+                        border: isSelected
+                            ? Border.all(color: AppColors.textPrimary, width: 2)
+                            : Border.all(color: AppColors.border),
                       ),
                     ),
                   );
@@ -296,105 +303,156 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final sectioned = ref.watch(sectionedTasksProvider);
     final profile = ref.watch(profileProvider);
     final history = ref.watch(taskHistoryProvider);
+    final isWide = MediaQuery.of(context).size.width >= 840;
+    final pagePad = isWide ? 24.0 : 16.0;
 
     return CelebrationConfettiOverlay(
       child: Scaffold(
         body: Column(
           children: [
-            // Top Category Tabs Bar + History/Undo Button
+            // Page header + category bar
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              padding: EdgeInsets.fromLTRB(pagePad, isWide ? 20 : 12, pagePad, 12),
               decoration: const BoxDecoration(
-                color: AppColors.surface,
+                color: AppColors.background,
                 border: Border(bottom: BorderSide(color: AppColors.border)),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: Row(
-                        children: [
-                          ...categories.map((cat) {
-                            final isSelected = activeCat == cat.id;
-                            return Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: FilterChip(
-                                avatar: CircleAvatar(
-                                  radius: 5,
-                                  backgroundColor: Color(cat.colorValue),
+                  Row(
+                    children: [
+                      const Text(
+                        'Tasks',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textPrimary,
+                        ),
+                      ),
+                      const Spacer(),
+                      OutlinedButton.icon(
+                        onPressed: _showHistoryDialog,
+                        icon: const Icon(Icons.history, size: 16, color: AppColors.textSecondary),
+                        label: Text(
+                          history.isNotEmpty ? 'History (${history.length})' : 'History',
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        ...categories.map((cat) {
+                          final isSelected = activeCat == cat.id;
+                          return Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(8),
+                              onTap: () => ref.read(activeCategoryTabProvider.notifier).setCategory(cat.id),
+                              child: AnimatedContainer(
+                                duration: AppTheme.fastDuration,
+                                curve: AppTheme.motionCurve,
+                                height: 32,
+                                padding: const EdgeInsets.symmetric(horizontal: 12),
+                                decoration: BoxDecoration(
+                                  color: isSelected ? AppColors.surfaceLight : AppColors.surface,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: isSelected ? AppColors.borderStrong : AppColors.border,
+                                  ),
                                 ),
-                                label: Text(cat.name),
-                                selected: isSelected,
-                                onSelected: (_) => ref.read(activeCategoryTabProvider.notifier).setCategory(cat.id),
-                                selectedColor: Color(cat.colorValue).withValues(alpha: 0.22),
-                                backgroundColor: AppColors.background,
-                                side: BorderSide(
-                                  color: isSelected ? Color(cat.colorValue) : AppColors.border,
-                                ),
-                                labelStyle: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
-                                  color: isSelected ? Color(cat.colorValue) : AppColors.textSecondary,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      width: 6,
+                                      height: 6,
+                                      decoration: BoxDecoration(
+                                        color: Color(cat.colorValue),
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      cat.name,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400,
+                                        color: isSelected ? AppColors.textPrimary : AppColors.textSecondary,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                            );
-                          }),
-                          // + New Category Button
-                          ActionChip(
-                            avatar: const Icon(Icons.add, size: 14, color: AppColors.primary),
-                            label: const Text('New Category'),
-                            onPressed: _promptCreateCategory,
-                            backgroundColor: AppColors.background,
-                            side: const BorderSide(color: AppColors.border, style: BorderStyle.solid),
-                            labelStyle: const TextStyle(fontSize: 12, color: AppColors.primary),
+                            ),
+                          );
+                        }),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: _promptCreateCategory,
+                          child: Container(
+                            height: 32,
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: Colors.transparent,
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppColors.border),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.add, size: 14, color: AppColors.textSecondary),
+                                SizedBox(width: 6),
+                                Text(
+                                  'New category',
+                                  style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
+                                ),
+                              ],
+                            ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
-                  ),
-
-                  // History / Undo Quick Launcher
-                  IconButton(
-                    tooltip: 'Task History & Undo (${history.length} actions)',
-                    icon: Badge(
-                      isLabelVisible: history.isNotEmpty,
-                      label: Text('${history.length}'),
-                      backgroundColor: AppColors.primary,
-                      child: const Icon(Icons.history, color: AppColors.textSecondary, size: 20),
-                    ),
-                    onPressed: _showHistoryDialog,
                   ),
                 ],
               ),
             ),
 
-            // Vacation Mode Banner (if active)
+            // Vacation banner
             if (profile.vacationModeEnabled)
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                color: AppColors.primary.withValues(alpha: 0.15),
+                padding: EdgeInsets.symmetric(horizontal: pagePad, vertical: 10),
+                decoration: const BoxDecoration(
+                  color: AppColors.surface,
+                  border: Border(bottom: BorderSide(color: AppColors.border)),
+                ),
                 child: Row(
                   children: [
-                    const Icon(Icons.beach_access, size: 18, color: AppColors.primary),
+                    const Icon(Icons.beach_access_outlined, size: 16, color: AppColors.primary),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Vacation Mode Active • ${profile.vacationFrozenChoreIds.length} recurring chores frozen',
-                        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppColors.primary),
+                        'Vacation mode active — ${profile.vacationFrozenChoreIds.length} recurring routines paused',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: AppColors.textPrimary,
+                        ),
                       ),
                     ),
-                    const Text('Enjoy your break!', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
                   ],
                 ),
               ),
 
-            // Main Screen: Accordion Sections (Overdue, In Progress, Level N ... Level 1)
+            // Accordions list
             Expanded(
               child: ListView(
-                padding: const EdgeInsets.only(bottom: 90, top: 10),
+                padding: EdgeInsets.fromLTRB(pagePad, 16, pagePad, 96),
                 children: [
-                  // 1. Overdue Section (Right at the top)
                   if (sectioned.overdueTasks.isNotEmpty)
                     _buildAccordionSection(
                       title: 'Overdue',
@@ -407,7 +465,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       categories: categories,
                     ),
 
-                  // 2. In Progress Section (Below overdue)
                   if (sectioned.inProgressTasks.isNotEmpty)
                     _buildAccordionSection(
                       title: 'In Progress',
@@ -420,44 +477,38 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       categories: categories,
                     ),
 
-                  // 3. Dynamic Importance Levels (Level N down to Level 1)
-                  for (int lvl = profile.numImportanceLevels; lvl >= 1; lvl--) ...[
-                    Builder(
-                      builder: (ctx) {
-                        final tasksForLevel = sectioned.levelTasks[lvl] ?? const [];
-                        final levelTitle = profile.getLevelName(lvl);
-                        final accentColor = _getLevelColor(lvl);
-                        final icon = _getLevelIcon(lvl);
-                        final isExpanded = _isLevelExpanded(lvl);
-
-                        return _buildAccordionSection(
-                          title: levelTitle,
-                          count: tasksForLevel.length,
-                          accentColor: accentColor,
-                          icon: icon,
-                          isExpanded: isExpanded,
-                          onToggle: () => _toggleLevelExpanded(lvl),
-                          tasks: tasksForLevel,
-                          categories: categories,
-                        );
-                      },
+                  for (int lvl = profile.numImportanceLevels; lvl >= 1; lvl--)
+                    _buildAccordionSection(
+                      title: profile.getLevelName(lvl),
+                      count: (sectioned.levelTasks[lvl] ?? const []).length,
+                      accentColor: _getLevelColor(lvl),
+                      icon: _getLevelIcon(lvl),
+                      isExpanded: _isLevelExpanded(lvl),
+                      onToggle: () => _toggleLevelExpanded(lvl),
+                      tasks: sectioned.levelTasks[lvl] ?? const [],
+                      categories: categories,
                     ),
-                  ],
 
-                  // Empty State if no tasks match
                   if (sectioned.overdueTasks.isEmpty &&
                       sectioned.inProgressTasks.isEmpty &&
                       sectioned.levelTasks.values.every((l) => l.isEmpty))
-                    Center(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 60),
-                        child: Column(
-                          children: [
-                            Icon(Icons.check_circle_outline, size: 48, color: AppColors.textMuted.withValues(alpha: 0.5)),
-                            const SizedBox(height: 12),
-                            const Text('No active tasks in this category', style: TextStyle(color: AppColors.textMuted)),
-                          ],
-                        ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 48),
+                      child: Column(
+                        children: [
+                          const Icon(Icons.check_circle_outline, size: 32, color: AppColors.textMuted),
+                          const SizedBox(height: 12),
+                          const Text(
+                            'No active tasks in this category',
+                            style: TextStyle(fontSize: 14, color: AppColors.textSecondary),
+                          ),
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            onPressed: () => _openAddEditDialog(),
+                            icon: const Icon(Icons.add, size: 16),
+                            label: const Text('Add task'),
+                          ),
+                        ],
                       ),
                     ),
                 ],
@@ -465,14 +516,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             ),
           ],
         ),
-
-        // Bottom Right (+) Button to Add New Tasks
         floatingActionButton: FloatingActionButton.extended(
           onPressed: () => _openAddEditDialog(),
-          backgroundColor: AppColors.primary,
-          foregroundColor: Colors.white,
-          icon: const Icon(Icons.add),
-          label: const Text('Add Task', style: TextStyle(fontWeight: FontWeight.w600)),
+          backgroundColor: AppColors.actionBg,
+          foregroundColor: AppColors.actionFg,
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+          icon: const Icon(Icons.add, size: 18),
+          label: const Text(
+            'Add Task',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+          ),
         ),
       ),
     );
@@ -488,80 +542,71 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     required List<TaskItem> tasks,
     required List<CategoryItem> categories,
   }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Accordion Header Bar
-        InkWell(
-          onTap: onToggle,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            child: Row(
-              children: [
-                Icon(icon, size: 16, color: accentColor),
-                const SizedBox(width: 8),
-                Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold,
-                    color: accentColor,
-                    letterSpacing: 0.3,
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: onToggle,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+              child: Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(color: accentColor, shape: BoxShape.circle),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 1.5),
-                  decoration: BoxDecoration(
-                    color: accentColor.withValues(alpha: 0.16),
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: Text(
-                    '$count',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: accentColor,
+                  const SizedBox(width: 8),
+                  Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                      color: AppColors.textPrimary,
                     ),
                   ),
-                ),
-                const Spacer(),
-                Icon(
-                  isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                  size: 18,
-                  color: AppColors.textMuted,
-                ),
-              ],
+                  const SizedBox(width: 8),
+                  Text(
+                    '$count',
+                    style: AppTheme.mono(12, color: AppColors.textMuted),
+                  ),
+                  const Spacer(),
+                  Icon(
+                    isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                    size: 18,
+                    color: AppColors.textMuted,
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-
-        // Accordion Dropdown Content
-        if (isExpanded)
-          tasks.isEmpty
-              ? Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
-                  child: Text(
-                    'No tasks in this section',
-                    style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic, color: AppColors.textMuted.withValues(alpha: 0.6)),
+          if (isExpanded)
+            tasks.isEmpty
+                ? const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                    child: Text(
+                      'No tasks in this section',
+                      style: TextStyle(fontSize: 13, color: AppColors.textMuted),
+                    ),
+                  )
+                : Column(
+                    children: tasks.map((task) {
+                      return TaskItemTile(
+                        task: task,
+                        categories: categories,
+                        onTap: () => _openAddEditDialog(task: task),
+                        onToggleComplete: () => ref.read(tasksProvider.notifier).markCompleted(task.id),
+                        onToggleInProgress: () => _toggleInProgressWithGuard(task.id),
+                        onMarkIgnored: () => ref.read(tasksProvider.notifier).markIgnored(task.id),
+                        onDelete: () => ref.read(tasksProvider.notifier).deleteTask(task.id),
+                      );
+                    }).toList(),
                   ),
-                )
-              : Column(
-                  children: tasks.map((task) {
-                    return TaskItemTile(
-                      task: task,
-                      categories: categories,
-                      onTap: () => _openAddEditDialog(task: task),
-                      onToggleComplete: () => ref.read(tasksProvider.notifier).markCompleted(task.id),
-                      onToggleInProgress: () => _toggleInProgressWithGuard(task.id),
-                      onMarkIgnored: () => ref.read(tasksProvider.notifier).markIgnored(task.id),
-                      onDelete: () => ref.read(tasksProvider.notifier).deleteTask(task.id),
-                    );
-                  }).toList(),
-                ),
-
-        const SizedBox(height: 6),
-      ],
+        ],
+      ),
     );
   }
 }

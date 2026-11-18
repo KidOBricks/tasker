@@ -1,7 +1,7 @@
+import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:fl_chart/fl_chart.dart';
 import '../../../domain/engine/analytics_engine.dart';
 import '../../../state/app_state.dart';
 import '../../theme/app_theme.dart';
@@ -23,44 +23,43 @@ class _ProgressScreenState extends ConsumerState<ProgressScreen> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Export Analytics & Tasks'),
+        title: const Text('Export tasks'),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Timeframe: ${_timeframe.displayName}', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.primary)),
-            const SizedBox(height: 8),
-            Text('Records included: ${filtered.length} tasks', style: const TextStyle(fontSize: 13, color: AppColors.textSecondary)),
+            Text(
+              '${_timeframe.displayName} • ${filtered.length} tasks',
+              style: AppTheme.mono(12, color: AppColors.textSecondary),
+            ),
             const SizedBox(height: 16),
-            const Text('Choose format to export:', style: TextStyle(fontSize: 13, color: AppColors.textPrimary)),
-            const SizedBox(height: 12),
             Row(
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    icon: const Icon(Icons.table_chart, size: 18),
-                    label: const Text('CSV Format'),
+                    icon: const Icon(Icons.table_chart_outlined, size: 16),
+                    label: const Text('Copy CSV'),
                     onPressed: () {
                       final csv = AnalyticsEngine.exportToCsv(filtered);
                       Clipboard.setData(ClipboardData(text: csv));
                       Navigator.of(ctx).pop();
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('CSV copied to clipboard! Ready to paste into Excel/Sheets.')),
+                        const SnackBar(content: Text('CSV copied to clipboard')),
                       );
                     },
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 Expanded(
                   child: OutlinedButton.icon(
-                    icon: const Icon(Icons.code, size: 18),
-                    label: const Text('JSON Format'),
+                    icon: const Icon(Icons.code, size: 16),
+                    label: const Text('Copy JSON'),
                     onPressed: () {
                       final jsonStr = AnalyticsEngine.exportToJson(filtered, timeframe: _timeframe);
                       Clipboard.setData(ClipboardData(text: jsonStr));
                       Navigator.of(ctx).pop();
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('JSON copied to clipboard!')),
+                        const SnackBar(content: Text('JSON copied to clipboard')),
                       );
                     },
                   ),
@@ -93,23 +92,223 @@ class _ProgressScreenState extends ConsumerState<ProgressScreen> {
     final totalInProgress = filteredTasks.where((t) => t.isInProgress).length;
     final totalIgnored = filteredTasks.where((t) => t.isIgnored).length;
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Progress & Analytics', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-        actions: [
-          IconButton(
-            tooltip: 'Export Stats (CSV / JSON)',
-            icon: const Icon(Icons.download, color: AppColors.primary),
-            onPressed: _openExportDialog,
-          ),
-        ],
+    final isWide = MediaQuery.of(context).size.width >= 900;
+    final pad = isWide ? 24.0 : 16.0;
+
+    final chartCard = Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Wrap(
+              spacing: 16,
+              runSpacing: 8,
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                const Text(
+                  'Priority tier breakdown',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                Wrap(
+                  spacing: 12,
+                  children: [
+                    _buildLegendItem('Completed', AppColors.inProgress),
+                    _buildLegendItem('In progress', AppColors.level2),
+                    _buildLegendItem('Ignored', AppColors.ignored),
+                  ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 24),
+            SizedBox(
+              height: 240,
+              child: BarChart(
+                BarChartData(
+                  alignment: BarChartAlignment.spaceAround,
+                  maxY: _calculateMaxY(stackedMetrics),
+                  barTouchData: BarTouchData(enabled: true),
+                  titlesData: FlTitlesData(
+                    leftTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        reservedSize: 28,
+                        getTitlesWidget: (val, _) => Text(
+                          '${val.toInt()}',
+                          style: AppTheme.mono(11, color: AppColors.textMuted),
+                        ),
+                      ),
+                    ),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(
+                        showTitles: true,
+                        getTitlesWidget: (val, _) {
+                          final idx = val.toInt();
+                          if (idx >= 0 && idx < stackedMetrics.length) {
+                            return Padding(
+                              padding: const EdgeInsets.only(top: 8),
+                              child: Text(
+                                stackedMetrics[idx].label,
+                                style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                              ),
+                            );
+                          }
+                          return const SizedBox();
+                        },
+                      ),
+                    ),
+                    topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                    rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                  ),
+                  gridData: FlGridData(
+                    drawVerticalLine: false,
+                    getDrawingHorizontalLine: (_) => const FlLine(
+                      color: AppColors.border,
+                      strokeWidth: 1,
+                    ),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  barGroups: stackedMetrics.asMap().entries.map((entry) {
+                    final i = entry.key;
+                    final m = entry.value;
+
+                    return BarChartGroupData(
+                      x: i,
+                      barRods: [
+                        BarChartRodData(
+                          toY: m.total.toDouble(),
+                          width: 28,
+                          borderRadius: BorderRadius.circular(4),
+                          rodStackItems: [
+                            BarChartRodStackItem(0, m.completed.toDouble(), AppColors.inProgress),
+                            BarChartRodStackItem(
+                              m.completed.toDouble(),
+                              (m.completed + m.inProgress).toDouble(),
+                              AppColors.level2,
+                            ),
+                            BarChartRodStackItem(
+                              (m.completed + m.inProgress).toDouble(),
+                              m.total.toDouble(),
+                              AppColors.ignored,
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
+                  }).toList(),
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+
+    final bottleneckCard = Card(
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Recurring delays',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+                color: AppColors.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            if (lateLeaderboard.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  'All recurring routines are currently on schedule',
+                  style: TextStyle(fontSize: 13, color: AppColors.textMuted),
+                ),
+              )
+            else
+              Column(
+                children: lateLeaderboard.take(5).map((chore) {
+                  return Container(
+                    margin: const EdgeInsets.only(bottom: 8),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppColors.background,
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppColors.border),
+                    ),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                chore.title,
+                                style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Late ${chore.lateCount} of ${chore.completionCount} cycles',
+                                style: AppTheme.mono(11, color: AppColors.textMuted),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          chore.formattedDelay,
+                          style: AppTheme.mono(
+                            12,
+                            color: AppColors.overdue,
+                            weight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
+              ),
+          ],
+        ),
+      ),
+    );
+
+    return Scaffold(
       body: SingleChildScrollView(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: EdgeInsets.all(pad),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Timeframe Selector Tabs
+            Row(
+              children: [
+                const Text(
+                  'Progress & Analytics',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.w500,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const Spacer(),
+                OutlinedButton.icon(
+                  onPressed: _openExportDialog,
+                  icon: const Icon(Icons.download_outlined, size: 16, color: AppColors.textSecondary),
+                  label: const Text('Export'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // Segmented timeframe control (outer radius 12 - 4px padding = 8px inner radius)
             Container(
               padding: const EdgeInsets.all(4),
               decoration: BoxDecoration(
@@ -121,21 +320,25 @@ class _ProgressScreenState extends ConsumerState<ProgressScreen> {
                 children: AnalyticsTimeframe.values.map((tf) {
                   final isSelected = _timeframe == tf;
                   return Expanded(
-                    child: GestureDetector(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
                       onTap: () => setState(() => _timeframe = tf),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: AnimatedContainer(
+                        duration: AppTheme.fastDuration,
+                        curve: AppTheme.motionCurve,
+                        height: 32,
                         decoration: BoxDecoration(
-                          color: isSelected ? AppColors.primary : Colors.transparent,
+                          color: isSelected ? AppColors.surfaceLight : Colors.transparent,
                           borderRadius: BorderRadius.circular(8),
+                          border: isSelected ? Border.all(color: AppColors.borderStrong) : null,
                         ),
                         alignment: Alignment.center,
                         child: Text(
                           tf.displayName,
                           style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                            color: isSelected ? Colors.white : AppColors.textSecondary,
+                            fontSize: 13,
+                            fontWeight: isSelected ? FontWeight.w500 : FontWeight.w400,
+                            color: isSelected ? AppColors.textPrimary : AppColors.textSecondary,
                           ),
                         ),
                       ),
@@ -146,22 +349,40 @@ class _ProgressScreenState extends ConsumerState<ProgressScreen> {
             ),
             const SizedBox(height: 16),
 
-            // Top Metric Counters Card
+            // Compact stat cards (label + figure only)
             Row(
               children: [
-                _buildStatPill('Completed', '$totalCompleted', AppColors.inProgress),
-                const SizedBox(width: 8),
-                _buildStatPill('In Progress', '$totalInProgress', AppColors.level2),
-                const SizedBox(width: 8),
-                _buildStatPill('Ignored', '$totalIgnored', AppColors.ignored),
+                _buildStatCard('Completed', '$totalCompleted', AppColors.inProgress),
+                const SizedBox(width: 12),
+                _buildStatCard('In progress', '$totalInProgress', AppColors.level2),
+                const SizedBox(width: 12),
+                _buildStatCard('Ignored', '$totalIgnored', AppColors.textSecondary),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
-            // Primary Visualization: 4-Column Stacked Bar Chart
+            // Asymmetric chart + bottleneck list on desktop
+            if (isWide)
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(flex: 2, child: chartCard),
+                  const SizedBox(width: 16),
+                  Expanded(flex: 1, child: bottleneckCard),
+                ],
+              )
+            else ...[
+              chartCard,
+              const SizedBox(height: 16),
+              bottleneckCard,
+            ],
+
+            const SizedBox(height: 16),
+
+            // 12-week completion consistency heatmap
             Card(
               child: Padding(
-                padding: const EdgeInsets.all(18),
+                padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -169,178 +390,21 @@ class _ProgressScreenState extends ConsumerState<ProgressScreen> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Text(
-                          'Task Distribution by Priority Tier',
-                          style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                        ),
-                        Wrap(
-                          spacing: 12,
-                          children: [
-                            _buildLegendItem('Completed', AppColors.inProgress),
-                            _buildLegendItem('In Progress', AppColors.level2),
-                            _buildLegendItem('Ignored', AppColors.ignored),
-                          ],
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    SizedBox(
-                      height: 220,
-                      child: BarChart(
-                        BarChartData(
-                          alignment: BarChartAlignment.spaceAround,
-                          maxY: _calculateMaxY(stackedMetrics),
-                          barTouchData: BarTouchData(enabled: true),
-                          titlesData: FlTitlesData(
-                            leftTitles: const AxisTitles(
-                              sideTitles: SideTitles(showTitles: true, reservedSize: 28),
-                            ),
-                            bottomTitles: AxisTitles(
-                              sideTitles: SideTitles(
-                                showTitles: true,
-                                getTitlesWidget: (val, meta) {
-                                  final idx = val.toInt();
-                                  if (idx >= 0 && idx < stackedMetrics.length) {
-                                    return Padding(
-                                      padding: const EdgeInsets.only(top: 8),
-                                      child: Text(
-                                        stackedMetrics[idx].label,
-                                        style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
-                                      ),
-                                    );
-                                  }
-                                  return const SizedBox();
-                                },
-                              ),
-                            ),
-                            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                          'Completion Consistency Heatmap',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                            color: AppColors.textPrimary,
                           ),
-                          gridData: FlGridData(
-                            drawVerticalLine: false,
-                            getDrawingHorizontalLine: (val) => const FlLine(color: AppColors.surfaceLight, strokeWidth: 0.8),
-                          ),
-                          borderData: FlBorderData(show: false),
-                          barGroups: stackedMetrics.asMap().entries.map((entry) {
-                            final i = entry.key;
-                            final m = entry.value;
-
-                            return BarChartGroupData(
-                              x: i,
-                              barRods: [
-                                BarChartRodData(
-                                  toY: m.total.toDouble(),
-                                  width: 28,
-                                  borderRadius: BorderRadius.circular(6),
-                                  rodStackItems: [
-                                    BarChartRodStackItem(0, m.completed.toDouble(), AppColors.inProgress),
-                                    BarChartRodStackItem(m.completed.toDouble(), (m.completed + m.inProgress).toDouble(), AppColors.level2),
-                                    BarChartRodStackItem((m.completed + m.inProgress).toDouble(), m.total.toDouble(), AppColors.ignored),
-                                  ],
-                                ),
-                              ],
-                            );
-                          }).toList(),
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Secondary Visualization 1: GitHub-Style Activity Heatmap
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
                         Text(
-                          'Completion Consistency Heatmap (Last 12 Weeks)',
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                          'Last 12 weeks',
+                          style: AppTheme.mono(12, color: AppColors.textMuted),
                         ),
-                        Text('Daily Velocity', style: TextStyle(fontSize: 11, color: AppColors.textMuted)),
                       ],
                     ),
-                    const SizedBox(height: 14),
+                    const SizedBox(height: 16),
                     _buildHeatmapGrid(heatmap),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Secondary Visualization 2: Late-Chore Diagnostic Leaderboard
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(18),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Row(
-                      children: [
-                        Icon(Icons.warning_amber_rounded, size: 18, color: AppColors.level2),
-                        SizedBox(width: 8),
-                        Text(
-                          'Late-Chore Diagnostic (Habit Bottlenecks)',
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    if (lateLeaderboard.isEmpty)
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 12),
-                        child: Text(
-                          'All recurring chores are currently completed on schedule! Great streak.',
-                          style: TextStyle(fontSize: 12, color: AppColors.textMuted),
-                        ),
-                      )
-                    else
-                      Column(
-                        children: lateLeaderboard.take(5).map((chore) {
-                          return Container(
-                            margin: const EdgeInsets.symmetric(vertical: 4),
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: AppColors.background,
-                              borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppColors.border),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(chore.title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                                      Text(
-                                        'Late ${chore.lateCount} of ${chore.completionCount} cycles',
-                                        style: const TextStyle(fontSize: 11, color: AppColors.textMuted),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                  decoration: BoxDecoration(
-                                    color: AppColors.overdue.withValues(alpha: 0.18),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: Text(
-                                    chore.formattedDelay,
-                                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppColors.overdue),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          );
-                        }).toList(),
-                      ),
                   ],
                 ),
               ),
@@ -353,26 +417,33 @@ class _ProgressScreenState extends ConsumerState<ProgressScreen> {
 
   double _calculateMaxY(List<StackedLevelMetric> metrics) {
     int maxVal = 5;
-    for (var m in metrics) {
+    for (final m in metrics) {
       if (m.total > maxVal) maxVal = m.total;
     }
     return (maxVal + 2).toDouble();
   }
 
-  Widget _buildStatPill(String label, String value, Color color) {
+  Widget _buildStatCard(String label, String value, Color valueColor) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
         decoration: BoxDecoration(
           color: AppColors.surface,
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: AppColors.border),
         ),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color)),
-            const SizedBox(height: 2),
-            Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: AppColors.textSecondary),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              value,
+              style: AppTheme.mono(28, color: valueColor, weight: FontWeight.w500),
+            ),
           ],
         ),
       ),
@@ -384,8 +455,8 @@ class _ProgressScreenState extends ConsumerState<ProgressScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
-        const SizedBox(width: 4),
-        Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textSecondary)),
+        const SizedBox(width: 6),
+        Text(label, style: const TextStyle(fontSize: 12, color: AppColors.textSecondary)),
       ],
     );
   }
@@ -401,9 +472,9 @@ class _ProgressScreenState extends ConsumerState<ProgressScreen> {
         if (count >= 4) {
           boxColor = AppColors.inProgress;
         } else if (count >= 2) {
-          boxColor = AppColors.inProgress.withValues(alpha: 0.7);
+          boxColor = AppColors.inProgress.withValues(alpha: 0.65);
         } else if (count == 1) {
-          boxColor = AppColors.inProgress.withValues(alpha: 0.35);
+          boxColor = AppColors.inProgress.withValues(alpha: 0.3);
         }
 
         return Container(

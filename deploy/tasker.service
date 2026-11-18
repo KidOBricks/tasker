@@ -1,0 +1,18 @@
+[Unit]
+Description=Tasker PocketBase Backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=tasker
+Group=tasker
+WorkingDirectory=/opt/tasker
+EnvironmentFile=/opt/tasker/.env
+ExecStart=/opt/tasker/tasker-server serve --http=127.0.0.1:8090 --dir=/opt/tasker/pb_data
+Restart=always
+RestartSec=3
+LimitNOFILE=4096
+
+[Install]
+WantedBy=multi-user.target

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../state/auth_state.dart';
@@ -11,22 +12,38 @@ class AuthScreen extends ConsumerStatefulWidget {
 }
 
 class _AuthScreenState extends ConsumerState<AuthScreen> {
-  bool _isSignUp = false;
   final _formKey = GlobalKey<FormState>();
 
-  final _emailController = TextEditingController(text: 'admin@tasker.io');
-  final _passwordController = TextEditingController(text: 'password123');
-  final _nameController = TextEditingController();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  late final TextEditingController _serverUrlController;
 
   bool _isLoading = false;
+  bool _showServerConfig = false;
   String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    _serverUrlController = TextEditingController(
+      text: ref.read(authServiceProvider).serverUrl,
+    );
+  }
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
-    _nameController.dispose();
+    _serverUrlController.dispose();
     super.dispose();
+  }
+
+  Future<void> _applyServerUrlIfChanged() async {
+    if (kIsWeb) return;
+    final desired = _serverUrlController.text.trim();
+    if (desired.isNotEmpty && desired != ref.read(authServiceProvider).serverUrl) {
+      await ref.read(authProvider.notifier).updateServerUrl(desired);
+    }
   }
 
   Future<void> _submit() async {
@@ -38,22 +55,17 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     });
 
     try {
-      if (_isSignUp) {
-        await ref.read(authProvider.notifier).signUp(
-              _emailController.text,
-              _passwordController.text,
-              _nameController.text,
-            );
-      } else {
-        await ref.read(authProvider.notifier).signIn(
-              _emailController.text,
-              _passwordController.text,
-            );
-      }
+      await _applyServerUrlIfChanged();
+      await ref.read(authProvider.notifier).signIn(
+            _emailController.text,
+            _passwordController.text,
+          );
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString().replaceFirst('Exception: ', '');
-      });
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString().replaceFirst('Exception: ', '');
+        });
+      }
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -61,52 +73,41 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     }
   }
 
-  void _quickLogin(String email) {
-    _emailController.text = email;
-    _passwordController.text = 'password123';
-    _submit();
+  Future<void> _signInOAuth(String provider) async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+    try {
+      await _applyServerUrlIfChanged();
+      await ref.read(authProvider.notifier).signInWithOAuth2(provider);
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = e.toString().replaceFirst('Exception: ', '');
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
-  void _showPasswordResetDialog() {
-    final resetController = TextEditingController(text: _emailController.text);
+  void _showPasswordHelpDialog() {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Reset Password'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Enter your account email to receive a password recovery link.',
-              style: TextStyle(fontSize: 13, color: AppColors.textSecondary),
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: resetController,
-              decoration: const InputDecoration(labelText: 'Email Address'),
-            ),
-          ],
+        title: const Text('Account access help'),
+        content: const Text(
+          'Tasker accounts are invite-only without automated email delivery.\n\n'
+          'Sign in with Google or Microsoft if your email matches an invited account, or ask your workspace admin to reset your password in PocketBase (/_/).',
+          style: TextStyle(fontSize: 13, color: AppColors.textSecondary, height: 1.5),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
           ElevatedButton(
-            onPressed: () async {
-              final nav = Navigator.of(ctx);
-              final messenger = ScaffoldMessenger.of(context);
-              try {
-                await ref.read(authProvider.notifier).sendPasswordReset(resetController.text);
-                if (ctx.mounted) nav.pop();
-                messenger.showSnackBar(
-                  const SnackBar(content: Text('Password reset instructions sent! Check your inbox.')),
-                );
-              } catch (e) {
-                messenger.showSnackBar(
-                  SnackBar(content: Text(e.toString().replaceFirst('Exception: ', ''))),
-                );
-              }
-            },
-            child: const Text('Send Reset Link'),
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
           ),
         ],
       ),
@@ -115,234 +116,242 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final currentServerUrl = ref.read(authServiceProvider).serverUrl;
+    final compact = MediaQuery.of(context).size.width < 520;
+
     return Scaffold(
       body: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
+          padding: EdgeInsets.all(compact ? 16 : 24),
           child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 460),
-            child: Card(
-              shape: RoundedRectangleBorder(
+            constraints: const BoxConstraints(maxWidth: 420),
+            child: Container(
+              padding: EdgeInsets.all(compact ? 24 : 32),
+              decoration: BoxDecoration(
+                color: AppColors.surface,
                 borderRadius: BorderRadius.circular(16),
-                side: const BorderSide(color: AppColors.border),
+                border: Border.all(color: AppColors.borderStrong),
               ),
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // App Branding Header
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: AppColors.primary.withValues(alpha: 0.2),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(color: AppColors.primary, width: 1.5),
-                            ),
-                            child: const Icon(Icons.sync_alt, color: AppColors.primary, size: 28),
-                          ),
-                          const SizedBox(width: 12),
-                          const Column(
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Flat branding header
+                    Row(
+                      children: [
+                        const TaskerMark(size: 32),
+                        const SizedBox(width: 12),
+                        const Flexible(
+                          child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
                                 'Tasker',
-                                style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: AppColors.textPrimary),
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppColors.textPrimary,
+                                ),
                               ),
                               Text(
-                                'Tasks & Calendar Cloud Sync',
-                                style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                                'Tasks, calendar prep, and cross-device sync',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: AppColors.textSecondary,
+                                ),
                               ),
                             ],
                           ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 20),
+
+                    // Invite-only notice
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: AppColors.background,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: AppColors.border),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.lock_outline, size: 16, color: AppColors.textMuted),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Invite-only workspace provisioned in PocketBase (/_/)',
+                              style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                            ),
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 24),
+                    ),
+                    const SizedBox(height: 20),
 
-                      // Sign In / Sign Up Mode Switcher
+                    if (_errorMessage != null) ...[
                       Container(
-                        padding: const EdgeInsets.all(4),
+                        padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: AppColors.background,
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: AppColors.border),
+                          color: AppColors.overdue.withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.overdue.withValues(alpha: 0.4)),
                         ),
                         child: Row(
                           children: [
+                            const Icon(Icons.error_outline, color: AppColors.overdue, size: 16),
+                            const SizedBox(width: 8),
                             Expanded(
-                              child: GestureDetector(
-                                onTap: () => setState(() => _isSignUp = false),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: !_isSignUp ? AppColors.surface : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: Text(
-                                    'Sign In',
-                                    style: TextStyle(
-                                      fontWeight: !_isSignUp ? FontWeight.bold : FontWeight.normal,
-                                      color: !_isSignUp ? AppColors.textPrimary : AppColors.textMuted,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: GestureDetector(
-                                onTap: () => setState(() => _isSignUp = true),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(vertical: 8),
-                                  decoration: BoxDecoration(
-                                    color: _isSignUp ? AppColors.surface : Colors.transparent,
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  alignment: Alignment.center,
-                                  child: Text(
-                                    'Create Account',
-                                    style: TextStyle(
-                                      fontWeight: _isSignUp ? FontWeight.bold : FontWeight.normal,
-                                      color: _isSignUp ? AppColors.textPrimary : AppColors.textMuted,
-                                    ),
-                                  ),
-                                ),
+                              child: Text(
+                                _errorMessage!,
+                                style: const TextStyle(fontSize: 12, color: AppColors.overdue),
                               ),
                             ),
                           ],
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 16),
+                    ],
 
-                      // Error Banner
-                      if (_errorMessage != null) ...[
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppColors.overdue.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: AppColors.overdue.withValues(alpha: 0.4)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.error_outline, color: AppColors.overdue, size: 18),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(_errorMessage!, style: const TextStyle(fontSize: 12, color: AppColors.overdue)),
+                    TextFormField(
+                      controller: _emailController,
+                      keyboardType: TextInputType.emailAddress,
+                      decoration: const InputDecoration(
+                        labelText: 'Email',
+                        hintText: 'you@example.com',
+                      ),
+                      validator: (val) {
+                        if (val == null || !val.contains('@')) return 'Enter a valid email address';
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    TextFormField(
+                      controller: _passwordController,
+                      obscureText: true,
+                      onFieldSubmitted: (_) => _isLoading ? null : _submit(),
+                      decoration: const InputDecoration(
+                        labelText: 'Password',
+                      ),
+                      validator: (val) {
+                        if (val == null || val.length < 6) return 'Password must be at least 6 characters';
+                        return null;
+                      },
+                    ),
+                    const SizedBox(height: 8),
+
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton(
+                        onPressed: _showPasswordHelpDialog,
+                        child: const Text(
+                          'Account access help',
+                          style: TextStyle(fontSize: 12, color: AppColors.textSecondary),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(44),
+                      ),
+                      onPressed: _isLoading ? null : _submit,
+                      child: _isLoading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: AppColors.actionFg,
                               ),
-                            ],
+                            )
+                          : const Text('Sign In'),
+                    ),
+                    const SizedBox(height: 20),
+
+                    const Row(
+                      children: [
+                        Expanded(child: Divider()),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            'or continue with',
+                            style: TextStyle(fontSize: 12, color: AppColors.textMuted),
                           ),
                         ),
-                        const SizedBox(height: 16),
+                        Expanded(child: Divider()),
                       ],
+                    ),
+                    const SizedBox(height: 16),
 
-                      // Sign Up Display Name Field
-                      if (_isSignUp) ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(40)),
+                            icon: const Icon(Icons.account_circle_outlined, size: 16, color: AppColors.textSecondary),
+                            label: const Text('Google'),
+                            onPressed: _isLoading ? null : () => _signInOAuth('google'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(minimumSize: const Size.fromHeight(40)),
+                            icon: const Icon(Icons.grid_view_outlined, size: 16, color: AppColors.textSecondary),
+                            label: const Text('Microsoft'),
+                            onPressed: _isLoading ? null : () => _signInOAuth('microsoft'),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+
+                    if (!kIsWeb) ...[
+                      TextButton.icon(
+                        onPressed: () => setState(() => _showServerConfig = !_showServerConfig),
+                        icon: Icon(
+                          _showServerConfig ? Icons.expand_less : Icons.dns_outlined,
+                          size: 16,
+                          color: AppColors.textMuted,
+                        ),
+                        label: Text(
+                          _showServerConfig ? 'Hide server URL' : 'Server: $currentServerUrl',
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTheme.mono(11, color: AppColors.textMuted),
+                        ),
+                      ),
+                      if (_showServerConfig) ...[
+                        const SizedBox(height: 8),
                         TextFormField(
-                          controller: _nameController,
+                          controller: _serverUrlController,
                           decoration: const InputDecoration(
-                            labelText: 'Full Name',
-                            prefixIcon: Icon(Icons.person_outline, size: 20),
+                            labelText: 'Server URL',
+                            hintText: 'https://1-2-3-4.sslip.io',
                           ),
                           validator: (val) {
-                            if (val == null || val.trim().isEmpty) return 'Please enter your name';
+                            final trimmed = val?.trim() ?? '';
+                            if (trimmed.isNotEmpty &&
+                                !trimmed.startsWith('http://') &&
+                                !trimmed.startsWith('https://')) {
+                              return 'URL must start with https:// or http://';
+                            }
                             return null;
                           },
                         ),
-                        const SizedBox(height: 14),
                       ],
-
-                      // Email Field
-                      TextFormField(
-                        controller: _emailController,
-                        decoration: const InputDecoration(
-                          labelText: 'Email Address',
-                          prefixIcon: Icon(Icons.email_outlined, size: 20),
-                        ),
-                        validator: (val) {
-                          if (val == null || !val.contains('@')) return 'Enter a valid email address';
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 14),
-
-                      // Password Field
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Password',
-                          prefixIcon: Icon(Icons.lock_outline, size: 20),
-                        ),
-                        validator: (val) {
-                          if (val == null || val.length < 6) return 'Password must be at least 6 characters';
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 10),
-
-                      // Forgot Password Link
-                      if (!_isSignUp)
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: TextButton(
-                            onPressed: _showPasswordResetDialog,
-                            child: const Text('Forgot Password?', style: TextStyle(fontSize: 12, color: AppColors.primary)),
-                          ),
-                        ),
-                      const SizedBox(height: 12),
-
-                      // Submit Button
-                      ElevatedButton(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppColors.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        onPressed: _isLoading ? null : _submit,
-                        child: _isLoading
-                            ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                            : Text(_isSignUp ? 'Create Account & Sync' : 'Sign In', style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Quick Demo Account Switcher
-                      const Divider(color: AppColors.border),
-                      const SizedBox(height: 12),
-                      const Text(
-                        'Quick Demo Login:',
+                    ] else
+                      Text(
+                        currentServerUrl,
                         textAlign: TextAlign.center,
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                        style: AppTheme.mono(11, color: AppColors.textMuted),
                       ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              icon: const Icon(Icons.admin_panel_settings, size: 16, color: AppColors.primary),
-                              label: const Text('Admin (Alex)', style: TextStyle(fontSize: 12)),
-                              onPressed: () => _quickLogin('admin@tasker.io'),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: OutlinedButton.icon(
-                              icon: const Icon(Icons.person, size: 16, color: AppColors.inProgress),
-                              label: const Text('User (Sarah)', style: TextStyle(fontSize: 12)),
-                              onPressed: () => _quickLogin('sarah.chen@university.edu'),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                  ],
                 ),
               ),
             ),

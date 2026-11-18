@@ -1,150 +1,114 @@
-# Tasker: Next-Gen Autonomous Task & Calendar Orchestrator
+# Tasker: Task & Calendar Sync
 
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-blue.svg)](https://flutter.dev)
-[![Architecture](https://img.shields.io/badge/Architecture-Clean%20Riverpod%20v2-purple.svg)](https://riverpod.dev)
-[![Cross-Platform](https://img.shields.io/badge/Platforms-Windows%20%7C%20Android%20%7C%20Linux%20%7C%20Web-success.svg)](https://flutter.dev/multi-platform)
+[![Go Backend](https://img.shields.io/badge/Backend-PocketBase%20%28Go%29-00ADD8.svg)](https://pocketbase.io)
+[![Cross-Platform](https://img.shields.io/badge/Platforms-Web%20%7C%20Android%20%7C%20Windows-success.svg)](https://flutter.dev/multi-platform)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Tasker is a cross-platform task manager and intelligent calendar orchestration engine built with Flutter and Dart. It combines dynamic priority escalation, interval- and calendar-based recurring chore engines, personal Google & Microsoft Outlook calendar syncing, Gmail inbox task extraction AI, and real-time multi-tenant cloud sync.
+Tasker is a cross-platform task manager and calendar orchestrator built with **Flutter + Drift (SQLite)** on the client and a custom **Go PocketBase** backend running behind **Caddy** on an Oracle Cloud Always Free VM (`sslip.io` HTTPS).
 
 ---
 
-## 🚀 Key Features
+## Key Features
 
-### 1. Dedicated Client Apps vs. Web Admin Separation
-- **Windows & Android Client Apps**: Clean, distraction-free user experience with 5 core navigation tabs:
-  - 📋 **Tasks**: Categorized accordions, subtask checklists, customizable importance levels, and confetti celebration on completion.
-  - 📅 **Calendar & Integrations**: Month/week calendar view with Google Calendar & Outlook integration chips, live feeds, and "+ Add Prep Task".
-  - 📊 **Progress & Analytics**: Heatmaps, completion velocity, late-chore leaderboards, and CSV/JSON export.
-  - 💡 **Ideas & Email Inbox AI**: Gmail scanner extracting action items directly from unread emails into draft tasks.
-  - ⚙️ **Profile & Settings**: Multi-tenant cloud sync status, custom escalation windows, notifications, and Vacation Mode.
-- **Enterprise Web Admin Portal (`admin.html`)**: Dedicated management dashboard for platform administrators to monitor multi-tenant users, inspect Firestore collections, promote/demote administrators, and manage account statuses.
+### 1. Offline-First Cross-Device Sync
+- **Drift SQLite Local Storage**: Works offline across Web (WASM via `sqlite3.wasm` + `drift_worker.js`), Android, and Windows with per-user tenant isolation (`userId`), `SyncOutbox` offline queueing, and soft deletes (`deletedAt`).
+- **PocketBase Realtime + Last-Write-Wins**: Bidirectional sync on startup, app resume, and live Server-Sent Events (SSE) subscriptions across all signed-in devices.
+- **5 Clean User Tabs**: Tasks, Calendar, Progress & Analytics, Ideas & Email Inbox AI, and Profile & Settings.
+- **Built-in Admin UI (`/_/`):** User provisioning, password resets, account suspension, and database inspection are handled directly in PocketBase's `/_/` Admin UI.
 
----
+### 2. Invite-Only Authentication & OAuth2 SSO
+- Open self-signup is disabled; accounts are created/invited by an administrator in PocketBase `/_/`.
+- Supports email/password sign-in plus Google and Microsoft OAuth2 SSO (for matching invited users).
+- Suspended accounts are blocked at login and session refresh.
 
-### 2. Deep Calendar & Email Integrations
-- **Google Calendar (REST API & OAuth 2.0)**:
-  - Users link their personal Google accounts directly in the client app.
-  - Synchronizes external events and meetings in real-time.
-  - Generates linked **Preparation Tasks** (scheduled 2 hours prior to critical meetings) with checklist templates.
-- **Microsoft Outlook Calendar (Microsoft Graph API)**:
-  - Supports Microsoft 365 enterprise, work/school, and personal Outlook accounts.
-  - Fetches attendees, meeting links, and calendar invites.
-- **Gmail Inbox AI Task Scanner**:
-  - Scans user's recent inbox threads using Gmail REST API.
-  - Employs heuristic and AI regex parsing to detect action verbs, project deliverables, and explicit deadlines.
-  - Populates actionable suggestions with 1-click "Accept & Add Task" or "Edit".
+### 3. Server-Side Calendar, Gmail & AI Task Extraction
+- **OAuth2 Authorization Code Flow**: Clients open the PocketBase server's signed-state `/api/integrations/{provider}/start` flow; OAuth refresh tokens are encrypted at rest with **AES-256-GCM** in PocketBase (`oauth_connections`, hidden from client API rules).
+- **Google Calendar & Microsoft Outlook**: Read-only background sync every 15 minutes (and on-demand via `POST /api/integrations/sync`) pulls upcoming meetings so you can link 1-click preparation tasks.
+- **Gmail Inbox AI**: Scans unread inbox messages server-side through a pluggable `ExtractorProvider` (`gemini`, any OpenAI-compatible free endpoint like Groq/OpenRouter, or heuristic keyword fallback) and writes pending `task_suggestions`.
+
+### 4. Smart Recurrence & Priority Escalation
+- **Dual Recurrence Modes**: Interval-based (with optional after-completion recalculation) and calendar-based schedules (daily/weekly/monthly/yearly).
+- **Dynamic Priority Escalation**: User-configurable importance tiers, custom labels, escalation windows before due dates, overdue auto-escalation, and Vacation Mode chore freezing.
 
 ---
 
-### 3. Smart Recurrence & Escalation Engines
-- **Dual Recurrence Modes**:
-  - **Interval-Based**: Every $X$ days, weeks, or months (with optional "After Completion" recalculation).
-  - **Calendar-Based**: Google Calendar-style recurring events (e.g., "Every Tuesday & Thursday at 10:00 AM").
-- **Dynamic Priority Escalation Engine**:
-  - User-configurable tier depth (3, 4, or 5 levels).
-  - Customizable labels per tier (e.g., Low, Medium, High, Critical, Blocker).
-  - Configurable escalation windows (e.g., Escalate to Level 2 within 3 days; Escalate to Level 3 within 12 hours of due date).
-  - Auto-escalates overdue tasks to maximum priority.
-- **Vacation Mode**:
-  - Freezes chosen recurring routines and suppresses non-critical notifications while away.
-- **Task History & Undo**:
-  - Reversible actions for completions, deletions, and status toggles.
+## Deploying to Oracle Cloud (Always Free + `sslip.io`)
 
----
+### Prerequisites on OCI
+1. Provision an Ubuntu 22.04/24.04 ARM64 (`VM.Standard.A1.Flex`) instance.
+2. In the OCI **VCN Security List**, open inbound **TCP 80** and **TCP 443** (`0.0.0.0/0`).
 
-### 4. Multi-Tenant Cloud Sync Architecture
-- **Tenant Isolation**: Every user's tasks, categories, routines, and credentials are partition-stored under `/users/{userId}/...` in Cloud Firestore.
-- **Local-First & Offline Support**: Changes write to local SQLite / SharedPreferences immediately and synchronize bidirectionally with Firestore when connected.
-- **Multi-Device Sync**: Works seamlessly across Windows desktops, Android mobile devices, Linux, and Web browsers.
-
----
-
-## 🛠️ Getting Started
-
-### Prerequisites
-- **Flutter SDK**: `>=3.19.0`
-- **Dart SDK**: `>=3.3.0`
-- (Optional) **Visual Studio 2022** for native Windows compilation
-- (Optional) **Android Studio & SDK** for native Android APK generation
-
-### Clone and Install
+### One-Command Server Bootstrap
 ```bash
 git clone https://github.com/KidOBricks/tasker.git
 cd tasker
+sudo bash deploy/oci-setup.sh --ip <YOUR_OCI_PUBLIC_IP>
+```
+This installs Caddy (automatic Let's Encrypt HTTPS for `https://<dashed-ip>.sslip.io`), builds/installs the `tasker-server` Go binary, creates `/opt/tasker/.env` with a fresh AES-256-GCM `TOKEN_ENCRYPTION_KEY`, and enables `tasker.service`.
+
+Then:
+1. Edit `/opt/tasker/.env` with your `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `MICROSOFT_CLIENT_ID`, `MICROSOFT_CLIENT_SECRET`, and `LLM_API_KEY` (`LLM_PROVIDER=gemini` or `openai`), then run:
+   ```bash
+   sudo systemctl restart tasker
+   ```
+2. Register these OAuth Redirect URIs in Google Cloud Console & Microsoft Entra ID:
+   - Google:
+     - `https://<dashed-ip>.sslip.io/api/integrations/google/callback`
+     - `https://<dashed-ip>.sslip.io/api/oauth2-redirect`
+   - Microsoft:
+     - `https://<dashed-ip>.sslip.io/api/integrations/microsoft/callback`
+     - `https://<dashed-ip>.sslip.io/api/oauth2-redirect`
+3. Visit `https://<dashed-ip>.sslip.io/_/` to create your PocketBase superuser, configure Google/Microsoft under Settings -> Auth providers (optional if using SSO login), and create user accounts.
+
+### Automated Builds & Deployments (GitHub Actions)
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs `go test`, builds the `linux/arm64` server binary, runs `flutter analyze` + `flutter test`, and builds **Web**, **Android APK**, and **Windows** artifacts.
+- Set repository variable `TASKER_API_URL=https://<dashed-ip>.sslip.io` so mobile/desktop release builds connect automatically.
+- To enable automatic SSH deployment to OCI on pushes to `main`, set repository variable `OCI_DEPLOY_ENABLED=true` and repository secrets `OCI_HOST`, `OCI_USER`, and `OCI_SSH_KEY`.
+
+---
+
+## Local Development & Verification
+
+### Backend (Go + PocketBase)
+```bash
+cd backend
+go test -v ./...
+go run . serve --http=127.0.0.1:8090
+```
+
+### Frontend (Flutter + Drift)
+```bash
 flutter pub get
-```
-
-### Run on Windows (Native Desktop)
-```bash
-# Ensure Windows desktop is enabled
-flutter config --enable-windows-desktop
-
-# Run native Windows debug build
-flutter run -d windows
-```
-
-### Run on Android
-```bash
-# Ensure emulator or USB-connected device is running
-flutter devices
-
-# Run on Android
-flutter run -d android
-```
-
-### Run on Web (Client App + Admin Portal)
-```bash
-flutter run -d chrome
-```
-- Open `http://localhost:<port>` for the client app.
-- Open `http://localhost:<port>/admin.html` for the dedicated enterprise SaaS Web Admin Portal.
-
----
-
-## 🧪 Testing & Verification
-
-Run the full automated test suite (26 unit, recurrence, priority, auth, and widget tests):
-```bash
-flutter test
-```
-
-Run static code analysis:
-```bash
 flutter analyze
+flutter test
+flutter run -d chrome --dart-define=TASKER_API_URL=http://127.0.0.1:8090
+```
+
+If you modify Drift tables in `lib/data/local/app_database.dart`, regenerate `app_database.g.dart` with:
+```bash
+dart run build_runner build --delete-conflicting-outputs
 ```
 
 ---
 
-## 📁 Repository Structure
-```
+## Repository Structure
+```text
+backend/                   # Custom PocketBase Go server, schema bootstrap, AES crypto, OAuth/Calendar/Gmail sync & LLM extractor
+deploy/                    # OCI setup script, systemd unit, Caddyfile template, .env.example
+.github/workflows/ci.yml   # Go + Flutter CI, Web/APK/Windows artifacts & optional OCI SSH CD
 lib/
 ├── data/
-│   ├── models/                # Local data entities & adapters
-│   ├── repositories/          # Local task repository & caching
-│   └── services/              # AuthService, DatabaseService, CalendarIntegrationService, EmailIntegrationService
-├── domain/
-│   ├── models/                # Core domain models (TaskItem, UserAccount, RecurrenceRule, etc.)
-│   └── logic/                 # RecurrenceEngine, PriorityEngine, AnalyticsEngine
-├── state/                     # Riverpod state providers (app_state, auth_state, integration_state)
-├── ui/
-│   ├── components/            # Reusable UI widgets (AddEditTaskDialog, TaskCard, Confetti)
-│   ├── layout/                # AdaptiveScaffold (responsive navigation rail / bottom bar)
-│   ├── screens/               # Tasks, Calendar, Progress, Ideas, Settings, and AdminConsole
-│   └── theme/                 # Dark/light theme, typography, and color tokens
-web/
-├── index.html                 # Flutter Web client entry point
-└── admin.html                 # Dedicated Enterprise Web Admin Portal
+│   ├── local/             # Drift SQLite tables & generated database
+│   ├── repositories/      # Tenant-isolated repository & SyncOutbox queueing
+│   └── services/          # ServerConfig, PocketBase client, AuthService, DatabaseService, Calendar & Email services
+├── domain/                # Models (TaskItem, UserAccount, RecurrenceRule, UserProfile) & Priority/Recurrence/Analytics engines
+├── state/                 # Riverpod providers (auth_state, app_state, integration_state)
+└── ui/                    # AdaptiveScaffold, Auth, Home, Calendar, Progress, Ideas & Settings screens
 ```
 
 ---
 
-## 🔒 Security & Privacy
-- User OAuth credentials and calendar tokens remain client-side or securely partitioned.
-- Firestore security rules restrict all document access to `request.auth.uid == userId`.
-- Admins cannot access private calendar tokens or personal email contents.
-
----
-
-## 📄 License
+## License
 Licensed under the [MIT License](LICENSE).
+

@@ -1,0 +1,20 @@
+{$TASKER_DOMAIN} {
+    encode zstd gzip
+
+    # PocketBase REST/Realtime API & custom integration endpoints
+    handle /api/* {
+        reverse_proxy 127.0.0.1:8090
+    }
+
+    # PocketBase built-in Admin UI
+    handle /_/* {
+        reverse_proxy 127.0.0.1:8090
+    }
+
+    # Flutter Web static client bundle
+    handle {
+        root * /opt/tasker/web
+        try_files {path} /index.html
+        file_server
+    }
+}
