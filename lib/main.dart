@@ -10,6 +10,7 @@ import 'data/services/auth_service.dart';
 import 'data/services/calendar_integration_service.dart';
 import 'data/services/database_service.dart';
 import 'data/services/email_integration_service.dart';
+import 'data/services/notification_service.dart';
 import 'data/services/pocketbase_client.dart';
 import 'data/services/server_config.dart';
 import 'state/app_state.dart';
@@ -31,6 +32,8 @@ void main() async {
   final databaseService = DatabaseService(pb, db, repository);
   final calendarService = CalendarIntegrationService(pb, db);
   final emailService = EmailIntegrationService(pb, db);
+  final notificationService = NotificationService();
+  await notificationService.initialize();
 
   // Hydrate cached user immediately so offline launch renders Drift data right away.
   final cachedUser = authService.currentUser;
@@ -59,6 +62,7 @@ void main() async {
         databaseServiceProvider.overrideWithValue(databaseService),
         calendarIntegrationServiceProvider.overrideWithValue(calendarService),
         emailIntegrationServiceProvider.overrideWithValue(emailService),
+        notificationServiceProvider.overrideWithValue(notificationService),
       ],
       child: const TaskCalendarSyncApp(),
     ),

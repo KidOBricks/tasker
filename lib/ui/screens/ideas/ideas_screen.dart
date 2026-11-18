@@ -64,6 +64,7 @@ class IdeasScreen extends ConsumerWidget {
           DateTime? dueDate,
           List<String> attachmentPaths = const [],
           recurrenceRule,
+          subtasks = const [],
         }) {
           ref.read(tasksProvider.notifier).addTask(
                 title: title,
@@ -73,6 +74,7 @@ class IdeasScreen extends ConsumerWidget {
                 dueDate: dueDate,
                 attachmentPaths: attachmentPaths,
                 recurrenceRule: recurrenceRule,
+                subtasks: subtasks,
                 emailRef: {
                   if (suggestion.emailId != null) 'emailId': suggestion.emailId,
                   'subject': suggestion.emailSubject,

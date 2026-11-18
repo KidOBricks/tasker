@@ -74,6 +74,69 @@ class ConnectedAccountInfo {
       );
 }
 
+class GoogleCalendarInfo {
+  final String id;
+  final String summary;
+  final bool primary;
+  final String backgroundColor;
+  final bool selected;
+
+  const GoogleCalendarInfo({
+    required this.id,
+    required this.summary,
+    this.primary = false,
+    this.backgroundColor = '',
+    this.selected = false,
+  });
+
+  factory GoogleCalendarInfo.fromJson(Map<String, dynamic> json) => GoogleCalendarInfo(
+        id: json['id']?.toString() ?? '',
+        summary: json['summary']?.toString() ?? '',
+        primary: json['primary'] == true,
+        backgroundColor: json['backgroundColor']?.toString() ?? '',
+        selected: json['selected'] == true,
+      );
+}
+
+class BulkTaskDraft {
+  final String title;
+  final String description;
+  final String categoryId;
+  final int importance;
+
+  const BulkTaskDraft({
+    required this.title,
+    this.description = '',
+    this.categoryId = 'work',
+    this.importance = 2,
+  });
+
+  factory BulkTaskDraft.fromJson(Map<String, dynamic> json) => BulkTaskDraft(
+        title: json['title']?.toString() ?? '',
+        description: json['description']?.toString() ?? '',
+        categoryId: json['categoryId']?.toString() ?? 'work',
+        importance: json['importance'] is num ? (json['importance'] as num).toInt().clamp(1, 5) : 2,
+      );
+}
+
+class TrustedTaskgiver {
+  final String id;
+  final String name;
+  final String email;
+  final String token;
+  final bool isActive;
+  final String shareUrl;
+
+  const TrustedTaskgiver({
+    required this.id,
+    required this.name,
+    this.email = '',
+    required this.token,
+    this.isActive = true,
+    required this.shareUrl,
+  });
+}
+
 class IntegrationsStatusSnapshot {
   final ConnectedAccountInfo? google;
   final ConnectedAccountInfo? microsoft;
@@ -150,6 +213,90 @@ class CalendarIntegrationService {
   Future<void> triggerServerSync() async {
     if (!_pb.authStore.isValid) return;
     await _pb.send('/api/integrations/sync', method: 'POST');
+  }
+
+  Future<List<GoogleCalendarInfo>> fetchGoogleCalendars() async {
+    if (!_pb.authStore.isValid) return const [];
+    final resp = await _pb.send<Map<String, dynamic>>('/api/integrations/google/calendars', method: 'GET');
+    final raw = resp['calendars'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((m) => GoogleCalendarInfo.fromJson(Map<String, dynamic>.from(m)))
+        .toList();
+  }
+
+  Future<void> saveGoogleCalendars(List<String> calendarIds) async {
+    if (!_pb.authStore.isValid) return;
+    await _pb.send(
+      '/api/integrations/google/calendars',
+      method: 'PUT',
+      body: {'calendarIds': calendarIds},
+    );
+  }
+
+  Future<List<BulkTaskDraft>> parseBulkTasks(String text) async {
+    if (!_pb.authStore.isValid) {
+      throw Exception('Not signed in');
+    }
+    final resp = await _pb.send<Map<String, dynamic>>(
+      '/api/tasks/parse-bulk',
+      method: 'POST',
+      body: {'text': text},
+    );
+    final raw = resp['tasks'];
+    if (raw is! List) return const [];
+    return raw
+        .whereType<Map>()
+        .map((m) => BulkTaskDraft.fromJson(Map<String, dynamic>.from(m)))
+        .toList();
+  }
+
+  Future<List<TrustedTaskgiver>> listTaskgivers(String userId) async {
+    if (!_pb.authStore.isValid || userId.isEmpty) return const [];
+    final records = await _pb.collection('trusted_taskgivers').getFullList(
+          filter: 'user = "${userId.replaceAll('"', '\\"')}"',
+          sort: '-created',
+        );
+    final base = _pb.baseURL.replaceAll(RegExp(r'/+$'), '');
+    return records
+        .map((r) => TrustedTaskgiver(
+              id: r.id,
+              name: r.get<String>('name', ''),
+              email: r.get<String>('email', ''),
+              token: r.get<String>('token', ''),
+              isActive: r.get<bool>('isActive', true),
+              shareUrl: '$base/give/${r.get<String>('token', '')}',
+            ))
+        .toList();
+  }
+
+  Future<TrustedTaskgiver> createTaskgiver({required String name, String email = ''}) async {
+    final resp = await _pb.send<Map<String, dynamic>>(
+      '/api/taskgivers',
+      method: 'POST',
+      body: {'name': name.trim(), 'email': email.trim()},
+    );
+    return TrustedTaskgiver(
+      id: resp['id']?.toString() ?? '',
+      name: resp['name']?.toString() ?? name.trim(),
+      email: resp['email']?.toString() ?? email.trim(),
+      token: resp['token']?.toString() ?? '',
+      isActive: resp['isActive'] != false,
+      shareUrl: resp['shareUrl']?.toString() ?? '',
+    );
+  }
+
+  Future<void> updateTaskgiver(String id, {String? name, String? email, bool? isActive}) async {
+    final body = <String, dynamic>{};
+    if (name != null) body['name'] = name.trim();
+    if (email != null) body['email'] = email.trim();
+    if (isActive != null) body['isActive'] = isActive;
+    await _pb.collection('trusted_taskgivers').update(id, body: body);
+  }
+
+  Future<void> deleteTaskgiver(String id) async {
+    await _pb.collection('trusted_taskgivers').delete(id);
   }
 
   /// Loads synced calendar events from Drift local SQLite for the active user.

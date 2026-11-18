@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart';
@@ -20,6 +21,7 @@ class AddEditTaskDialog extends StatefulWidget {
     DateTime? dueDate,
     List<String> attachmentPaths,
     RecurrenceRule? recurrenceRule,
+    List<SubtaskItem> subtasks,
   }) onSave;
   final Function(String taskId)? onMarkDone;
   final Function(String taskId)? onMarkInProgress;
@@ -47,11 +49,14 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _titleController;
   late TextEditingController _descController;
+  final TextEditingController _subtaskInputController = TextEditingController();
 
   late String _selectedCategoryId;
   late int _selectedImportance;
   DateTime? _selectedDueDate;
   List<String> _attachmentPaths = [];
+  List<SubtaskItem> _subtasks = [];
+  int _newSubtaskImportance = 2;
 
   // Recurrence configuration
   bool _isRecurring = false;
@@ -79,6 +84,7 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
         (widget.categories.isNotEmpty ? widget.categories.first.id : 'all');
     _selectedImportance = task?.baseImportance ?? 3;
     _attachmentPaths = List.from(task?.attachmentPaths ?? []);
+    _subtasks = List.from(task?.subtasks ?? []);
     _isRecurring = task?.isRecurring ?? false;
 
     if (task != null) {
@@ -93,7 +99,27 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
   void dispose() {
     _titleController.dispose();
     _descController.dispose();
+    _subtaskInputController.dispose();
     super.dispose();
+  }
+
+  void _syncParentImportanceFromSubtasks() {
+    if (_subtasks.isEmpty) return;
+    _selectedImportance = _subtasks.map((s) => s.baseImportance).reduce(math.max);
+  }
+
+  void _addSubtask() {
+    final title = _subtaskInputController.text.trim();
+    if (title.isEmpty) return;
+    setState(() {
+      _subtasks.add(SubtaskItem(
+        id: 'sub_${DateTime.now().microsecondsSinceEpoch}_${_subtasks.length}',
+        title: title,
+        baseImportance: _newSubtaskImportance,
+      ));
+      _subtaskInputController.clear();
+      _syncParentImportanceFromSubtasks();
+    });
   }
 
   void _onImportanceChanged(int level) {
@@ -228,6 +254,7 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
       dueDate: _selectedDueDate,
       attachmentPaths: _attachmentPaths,
       recurrenceRule: rule,
+      subtasks: _subtasks,
     );
 
     Navigator.of(context).pop();
@@ -633,6 +660,111 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
                               style: TextStyle(fontSize: 12, color: AppColors.textMuted),
                             ),
                           ),
+
+                        const SizedBox(height: 16),
+
+                        // Subtasks Section
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            const Text(
+                              'Subtasks',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
+                            ),
+                            if (_subtasks.isNotEmpty)
+                              Text(
+                                'Priority auto-set to max (L$_selectedImportance)',
+                                style: const TextStyle(fontSize: 11, color: AppColors.primary),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: TextField(
+                                controller: _subtaskInputController,
+                                decoration: const InputDecoration(
+                                  hintText: 'Add subtask...',
+                                  isDense: true,
+                                  border: OutlineInputBorder(),
+                                ),
+                                onSubmitted: (_) => _addSubtask(),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            DropdownButton<int>(
+                              value: _newSubtaskImportance,
+                              dropdownColor: AppColors.surface,
+                              items: List.generate(widget.numImportanceLevels, (i) => i + 1)
+                                  .map((lvl) => DropdownMenuItem(value: lvl, child: Text('L$lvl', style: const TextStyle(fontSize: 12))))
+                                  .toList(),
+                              onChanged: (val) {
+                                if (val != null) setState(() => _newSubtaskImportance = val);
+                              },
+                            ),
+                            IconButton(
+                              tooltip: 'Add subtask',
+                              icon: const Icon(Icons.add_circle_outline, color: AppColors.primary),
+                              onPressed: _addSubtask,
+                            ),
+                          ],
+                        ),
+                        if (_subtasks.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          ...List.generate(_subtasks.length, (i) {
+                            final sub = _subtasks[i];
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 4),
+                              child: Row(
+                                children: [
+                                  Checkbox(
+                                    value: sub.isCompleted,
+                                    onChanged: (val) {
+                                      setState(() {
+                                        _subtasks[i] = sub.copyWith(isCompleted: val == true);
+                                      });
+                                    },
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      sub.title,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        decoration: sub.isCompleted ? TextDecoration.lineThrough : null,
+                                        color: sub.isCompleted ? AppColors.textMuted : AppColors.textPrimary,
+                                      ),
+                                    ),
+                                  ),
+                                  DropdownButton<int>(
+                                    value: sub.baseImportance.clamp(1, widget.numImportanceLevels),
+                                    dropdownColor: AppColors.surface,
+                                    items: List.generate(widget.numImportanceLevels, (idx) => idx + 1)
+                                        .map((lvl) => DropdownMenuItem(value: lvl, child: Text('L$lvl', style: const TextStyle(fontSize: 12))))
+                                        .toList(),
+                                    onChanged: (val) {
+                                      if (val != null) {
+                                        setState(() {
+                                          _subtasks[i] = sub.copyWith(baseImportance: val);
+                                          _syncParentImportanceFromSubtasks();
+                                        });
+                                      }
+                                    },
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.close, size: 16, color: AppColors.textMuted),
+                                    onPressed: () {
+                                      setState(() {
+                                        _subtasks.removeAt(i);
+                                        _syncParentImportanceFromSubtasks();
+                                      });
+                                    },
+                                  ),
+                                ],
+                              ),
+                            );
+                          }),
+                        ],
                       ],
                     ),
                   ),

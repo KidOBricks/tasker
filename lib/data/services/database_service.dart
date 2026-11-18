@@ -26,12 +26,25 @@ enum SyncStatus {
   }
 }
 
+class TaskGivenAlert {
+  final String taskId;
+  final String title;
+  final String giverName;
+
+  const TaskGivenAlert({
+    required this.taskId,
+    required this.title,
+    required this.giverName,
+  });
+}
+
 class DatabaseService {
   final PocketBase _pb;
   final AppDatabase _db;
   final TaskRepository _repo;
   final _syncStatusController = StreamController<SyncStatus>.broadcast();
   final _dataUpdatedController = StreamController<String>.broadcast();
+  final _taskGivenController = StreamController<TaskGivenAlert>.broadcast();
 
   SyncStatus _currentStatus = SyncStatus.offline;
   DateTime? _lastSyncTime;
@@ -48,6 +61,7 @@ class DatabaseService {
   String get serverUrl => _pb.baseURL;
   Stream<SyncStatus> get syncStatusStream => _syncStatusController.stream;
   Stream<String> get dataUpdatedStream => _dataUpdatedController.stream;
+  Stream<TaskGivenAlert> get taskGivenStream => _taskGivenController.stream;
 
   void _setStatus(SyncStatus status) {
     _currentStatus = status;
@@ -190,6 +204,9 @@ class DatabaseService {
           'recurrenceRuleId': payload['recurrenceRuleId'] ?? '',
           'calendarEventId': payload['calendarEventId'] ?? '',
           'emailRef': payload['emailRef'],
+          'subtasks': payload['subtasks'] ?? const [],
+          'givenById': payload['givenById'] ?? '',
+          'givenByName': payload['givenByName'] ?? '',
           'clientUpdatedAt': payload['clientUpdatedAt'] ?? DateTime.now().toUtc().toIso8601String(),
           'deletedAt': payload['deletedAt'] ?? '',
         };
@@ -246,6 +263,7 @@ class DatabaseService {
           'vacationNotificationFilter': payload['vacationNotificationFilter'] ?? 'urgent_only',
           'notificationsEnabled': payload['notificationsEnabled'] != false,
           'notifyPriorHours': payload['notifyPriorHours'] ?? 1,
+          'notifyPriorMinutes': payload['notifyPriorMinutes'] ?? ((payload['notifyPriorHours'] ?? 1) * 60),
           'notifyForTier': payload['notifyForTier'] ?? 'all',
           'notifyForOverdue': payload['notifyForOverdue'] != false,
           'reviewTasksEnabled': payload['reviewTasksEnabled'] != false,
@@ -339,18 +357,24 @@ class DatabaseService {
         final delStr = rec.get<String>('deletedAt', '');
         final attachRaw = rec.data['attachmentPaths'];
         final emailRefRaw = rec.data['emailRef'];
+        final subtasksRaw = rec.data['subtasks'];
+        final givenById = _emptyToNull(rec.get<String>('givenById', ''));
+        final givenByName = _emptyToNull(rec.get<String>('givenByName', ''));
+        final title = rec.get<String>('title', '');
+        final status = rec.get<String>('status', 'pending');
+
         await _db.into(_db.localTasks).insertOnConflictUpdate(
               LocalTasksCompanion.insert(
                 id: clientId,
                 pbId: Value(rec.id),
                 userId: userId,
-                title: rec.get<String>('title', ''),
+                title: title,
                 description: Value(_emptyToNull(rec.get<String>('description', ''))),
                 categoryId: Value(rec.get<String>('categoryId', 'all')),
                 baseImportance: Value(rec.get<num>('baseImportance', 1).toInt()),
                 effectiveImportance: Value(rec.get<num>('effectiveImportance', 1).toInt()),
                 dueDate: Value(DateTime.tryParse(rec.get<String>('dueDate', ''))),
-                status: Value(rec.get<String>('status', 'pending')),
+                status: Value(status),
                 isOverdue: Value(rec.get<bool>('isOverdue', false)),
                 createdAt: DateTime.tryParse(rec.get<String>('clientCreatedAt', '')) ?? DateTime.now(),
                 completedAt: Value(DateTime.tryParse(rec.get<String>('completedAt', ''))),
@@ -360,10 +384,20 @@ class DatabaseService {
                 recurrenceRuleId: Value(_emptyToNull(rec.get<String>('recurrenceRuleId', ''))),
                 calendarEventId: Value(_emptyToNull(rec.get<String>('calendarEventId', ''))),
                 emailRefJson: Value(emailRefRaw is Map ? json.encode(emailRefRaw) : null),
+                subtasksJson: Value(json.encode(subtasksRaw is List ? subtasksRaw : const [])),
+                givenById: Value(givenById),
+                givenByName: Value(givenByName),
                 updatedAt: remoteUpdated,
                 deletedAt: Value(delStr.isNotEmpty ? DateTime.tryParse(delStr) : null),
               ),
             );
+        if (local == null && delStr.isEmpty && givenById != null && status == 'pending' && !_taskGivenController.isClosed) {
+          _taskGivenController.add(TaskGivenAlert(
+            taskId: clientId,
+            title: title,
+            giverName: givenByName ?? 'Trusted taskgiver',
+          ));
+        }
       }
     }
 
@@ -392,12 +426,14 @@ class DatabaseService {
       }
     }
 
-    // 5. External Calendar Events
+    // 5. External Calendar Events (sync + prune deselected calendar events)
     final remoteEvents = await _pb.collection('external_events').getFullList(filter: filter);
+    final remoteCompositeIds = <String>{};
     for (final rec in remoteEvents) {
       final extId = rec.get<String>('externalId', rec.id);
       final source = rec.get<String>('source', 'google');
       final compositeId = '$userId::$source::$extId';
+      remoteCompositeIds.add(compositeId);
       final attendeesRaw = rec.data['attendees'];
       await _db.into(_db.localExternalEvents).insertOnConflictUpdate(
             LocalExternalEventsCompanion.insert(
@@ -417,6 +453,14 @@ class DatabaseService {
               updatedAt: _parseRemoteUpdated(rec),
             ),
           );
+    }
+    final localEvents = await (_db.select(_db.localExternalEvents)
+          ..where((e) => e.userId.equals(userId)))
+        .get();
+    for (final localEv in localEvents) {
+      if (!remoteCompositeIds.contains(localEv.id)) {
+        await (_db.delete(_db.localExternalEvents)..where((e) => e.id.equals(localEv.id))).go();
+      }
     }
 
     // 6. Task Suggestions (Gmail AI)
@@ -454,6 +498,7 @@ class DatabaseService {
     stopRealtimeSync();
     _syncStatusController.close();
     _dataUpdatedController.close();
+    _taskGivenController.close();
   }
 
   static DateTime _parseRemoteUpdated(RecordModel rec) {

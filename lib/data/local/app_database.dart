@@ -23,6 +23,9 @@ class LocalTasks extends Table {
   TextColumn get recurrenceRuleId => text().nullable()();
   TextColumn get calendarEventId => text().nullable()();
   TextColumn get emailRefJson => text().nullable()();
+  TextColumn get subtasksJson => text().withDefault(const Constant('[]'))();
+  TextColumn get givenById => text().nullable()();
+  TextColumn get givenByName => text().nullable()();
   DateTimeColumn get updatedAt => dateTime()();
   DateTimeColumn get deletedAt => dateTime().nullable()();
 
@@ -156,5 +159,16 @@ class AppDatabase extends _$AppDatabase {
         );
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
+
+  @override
+  MigrationStrategy get migration => MigrationStrategy(
+        onUpgrade: (Migrator m, int from, int to) async {
+          if (from < 2) {
+            await m.addColumn(localTasks, localTasks.subtasksJson);
+            await m.addColumn(localTasks, localTasks.givenById);
+            await m.addColumn(localTasks, localTasks.givenByName);
+          }
+        },
+      );
 }

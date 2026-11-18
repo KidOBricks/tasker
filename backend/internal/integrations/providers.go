@@ -12,15 +12,25 @@ import (
 )
 
 type CalendarEventDTO struct {
-	ExternalID  string
-	Source      string
-	Title       string
-	StartTime   time.Time
-	EndTime     time.Time
-	Location    string
-	Description string
-	MeetingURL  string
-	Attendees   []string
+	ExternalID   string
+	Source       string
+	CalendarID   string
+	CalendarName string
+	Title        string
+	StartTime    time.Time
+	EndTime      time.Time
+	Location     string
+	Description  string
+	MeetingURL   string
+	Attendees    []string
+}
+
+type GoogleCalendarDTO struct {
+	ID              string `json:"id"`
+	Summary         string `json:"summary"`
+	Primary         bool   `json:"primary"`
+	BackgroundColor string `json:"backgroundColor"`
+	AccessRole      string `json:"accessRole"`
 }
 
 type EmailMessageDTO struct {
@@ -67,10 +77,8 @@ func FetchGoogleUserEmail(ctx context.Context, client *http.Client, baseURL, acc
 	return data.Email, data.Name, nil
 }
 
-func FetchGoogleCalendarEvents(ctx context.Context, client *http.Client, baseURL, accessToken string, now time.Time) ([]CalendarEventDTO, error) {
-	timeMin := url.QueryEscape(now.UTC().Add(-24 * time.Hour).Format(time.RFC3339))
-	endpoint := fmt.Sprintf("%s/calendar/v3/calendars/primary/events?timeMin=%s&singleEvents=true&orderBy=startTime&maxResults=25", baseURL, timeMin)
-
+func FetchGoogleCalendarList(ctx context.Context, client *http.Client, baseURL, accessToken string) ([]GoogleCalendarDTO, error) {
+	endpoint := fmt.Sprintf("%s/calendar/v3/users/me/calendarList?minAccessRole=reader", baseURL)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -83,66 +91,128 @@ func FetchGoogleCalendarEvents(ctx context.Context, client *http.Client, baseURL
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("google calendar status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("google calendarList status %d: %s", resp.StatusCode, string(body))
 	}
 
 	var parsed struct {
-		Items []struct {
-			ID          string `json:"id"`
-			Summary     string `json:"summary"`
-			Location    string `json:"location"`
-			Description string `json:"description"`
-			HangoutLink string `json:"hangoutLink"`
-			Start       struct {
-				DateTime string `json:"dateTime"`
-				Date     string `json:"date"`
-			} `json:"start"`
-			End struct {
-				DateTime string `json:"dateTime"`
-				Date     string `json:"date"`
-			} `json:"end"`
-			Attendees []struct {
-				Email string `json:"email"`
-			} `json:"attendees"`
-		} `json:"items"`
+		Items []GoogleCalendarDTO `json:"items"`
 	}
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil, err
 	}
+	return parsed.Items, nil
+}
 
-	events := make([]CalendarEventDTO, 0, len(parsed.Items))
-	for _, item := range parsed.Items {
-		start := parseFlexibleTime(item.Start.DateTime, item.Start.Date, now.Add(2*time.Hour))
-		end := parseFlexibleTime(item.End.DateTime, item.End.Date, start.Add(time.Hour))
-		attendees := make([]string, 0, len(item.Attendees))
-		for _, a := range item.Attendees {
-			if a.Email != "" {
-				attendees = append(attendees, a.Email)
+func FetchGoogleCalendarEvents(ctx context.Context, client *http.Client, baseURL, accessToken string, now time.Time, calendarIDs ...string) ([]CalendarEventDTO, error) {
+	ids := make([]string, 0, len(calendarIDs))
+	for _, cid := range calendarIDs {
+		if trimmed := strings.TrimSpace(cid); trimmed != "" {
+			ids = append(ids, trimmed)
+		}
+	}
+	if len(ids) == 0 {
+		ids = []string{"primary"}
+	}
+
+	// Best-effort lookup for friendly calendar names when syncing multiple calendars
+	calNames := map[string]string{"primary": "Primary"}
+	if cals, err := FetchGoogleCalendarList(ctx, client, baseURL, accessToken); err == nil {
+		for _, c := range cals {
+			if c.Summary != "" {
+				calNames[c.ID] = c.Summary
+				if c.Primary {
+					calNames["primary"] = c.Summary
+				}
 			}
 		}
-		title := strings.TrimSpace(item.Summary)
-		if title == "" {
-			title = "Untitled Event"
-		}
-		loc := strings.TrimSpace(item.Location)
-		if loc == "" && item.HangoutLink != "" {
-			loc = "Google Meet"
-		}
-		events = append(events, CalendarEventDTO{
-			ExternalID:  item.ID,
-			Source:      "google",
-			Title:       title,
-			StartTime:   start,
-			EndTime:     end,
-			Location:    loc,
-			Description: item.Description,
-			MeetingURL:  item.HangoutLink,
-			Attendees:   attendees,
-		})
 	}
-	return events, nil
+
+	timeMin := url.QueryEscape(now.UTC().Add(-24 * time.Hour).Format(time.RFC3339))
+	allEvents := make([]CalendarEventDTO, 0, 25*len(ids))
+	for _, calID := range ids {
+		endpoint := fmt.Sprintf("%s/calendar/v3/calendars/%s/events?timeMin=%s&singleEvents=true&orderBy=startTime&maxResults=25", baseURL, url.PathEscape(calID), timeMin)
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", "Bearer "+accessToken)
+
+		resp, err := client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("google calendar (%s) status %d: %s", calID, resp.StatusCode, string(body))
+		}
+
+		var parsed struct {
+			Items []struct {
+				ID          string `json:"id"`
+				Summary     string `json:"summary"`
+				Location    string `json:"location"`
+				Description string `json:"description"`
+				HangoutLink string `json:"hangoutLink"`
+				Start       struct {
+					DateTime string `json:"dateTime"`
+					Date     string `json:"date"`
+				} `json:"start"`
+				End struct {
+					DateTime string `json:"dateTime"`
+					Date     string `json:"date"`
+				} `json:"end"`
+				Attendees []struct {
+					Email string `json:"email"`
+				} `json:"attendees"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal(body, &parsed); err != nil {
+			return nil, err
+		}
+
+		calName := calNames[calID]
+		for _, item := range parsed.Items {
+			start := parseFlexibleTime(item.Start.DateTime, item.Start.Date, now.Add(2*time.Hour))
+			end := parseFlexibleTime(item.End.DateTime, item.End.Date, start.Add(time.Hour))
+			attendees := make([]string, 0, len(item.Attendees))
+			for _, a := range item.Attendees {
+				if a.Email != "" {
+					attendees = append(attendees, a.Email)
+				}
+			}
+			title := strings.TrimSpace(item.Summary)
+			if title == "" {
+				title = "Untitled Event"
+			}
+			loc := strings.TrimSpace(item.Location)
+			if loc == "" && item.HangoutLink != "" {
+				loc = "Google Meet"
+			}
+			extID := item.ID
+			if calID != "primary" {
+				extID = calID + ":" + item.ID
+			}
+			allEvents = append(allEvents, CalendarEventDTO{
+				ExternalID:   extID,
+				Source:       "google",
+				CalendarID:   calID,
+				CalendarName: calName,
+				Title:        title,
+				StartTime:    start,
+				EndTime:      end,
+				Location:     loc,
+				Description:  item.Description,
+				MeetingURL:   item.HangoutLink,
+				Attendees:    attendees,
+			})
+		}
+	}
+	return allEvents, nil
 }
 
 func FetchGmailUnreadMessages(ctx context.Context, client *http.Client, baseURL, accessToken string) ([]EmailMessageDTO, error) {

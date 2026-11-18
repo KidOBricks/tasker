@@ -11,6 +11,11 @@
         reverse_proxy 127.0.0.1:8090
     }
 
+    # Public trusted-taskgiver pages
+    handle /give/* {
+        reverse_proxy 127.0.0.1:8090
+    }
+
     # Flutter Web static client bundle
     handle {
         root * /opt/tasker/web

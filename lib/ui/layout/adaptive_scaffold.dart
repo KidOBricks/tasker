@@ -1,8 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/services/database_service.dart';
+import '../../data/services/notification_service.dart';
 import '../../state/app_state.dart';
 import '../../state/auth_state.dart';
+import '../../state/integration_state.dart';
 import '../screens/auth/auth_screen.dart';
 import '../screens/calendar/calendar_screen.dart';
 import '../screens/home/home_screen.dart';
@@ -10,6 +13,7 @@ import '../screens/ideas/ideas_screen.dart';
 import '../screens/progress/progress_screen.dart';
 import '../screens/settings/settings_screen.dart';
 import '../theme/app_theme.dart';
+import '../widgets/celebration_confetti.dart';
 
 class AdaptiveScaffold extends ConsumerStatefulWidget {
   const AdaptiveScaffold({super.key});
@@ -20,6 +24,74 @@ class AdaptiveScaffold extends ConsumerStatefulWidget {
 
 class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
   int _selectedIndex = 0;
+  final GlobalKey<CelebrationConfettiOverlayState> _confettiKey = GlobalKey();
+  Timer? _reminderTimer;
+  Timer? _initialCheckTimer;
+  StreamSubscription<TaskGivenAlert>? _givenSub;
+  StreamSubscription<PendingReminder>? _alertSub;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _startNotificationWatchers());
+  }
+
+  void _startNotificationWatchers() {
+    final notif = ref.read(notificationServiceProvider);
+    final dbSvc = ref.read(databaseServiceProvider);
+
+    _givenSub = dbSvc.taskGivenStream.listen((alert) {
+      final profile = ref.read(profileProvider);
+      notif.notifyTaskGiven(alert, profile);
+    });
+
+    _alertSub = notif.inAppAlerts.listen((alert) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 16, 16, 84),
+          backgroundColor: alert.isUrgent ? AppColors.surface : AppColors.surfaceLight,
+          content: Row(
+            children: [
+              Icon(
+                alert.isUrgent ? Icons.notifications_active : Icons.notifications_outlined,
+                size: 18,
+                color: alert.isUrgent ? AppColors.level3 : AppColors.primary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '${alert.title} — ${alert.body}',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    });
+
+    _initialCheckTimer = Timer(const Duration(seconds: 5), _evaluateNow);
+    _reminderTimer = Timer.periodic(const Duration(seconds: 60), (_) => _evaluateNow());
+  }
+
+  void _evaluateNow() {
+    if (!mounted || ref.read(authProvider) == null) return;
+    final tasks = ref.read(tasksProvider);
+    final profile = ref.read(profileProvider);
+    ref.read(notificationServiceProvider).evaluateAndNotify(tasks, profile);
+  }
+
+  @override
+  void dispose() {
+    _initialCheckTimer?.cancel();
+    _reminderTimer?.cancel();
+    _givenSub?.cancel();
+    _alertSub?.cancel();
+    super.dispose();
+  }
 
   void _navigateTo(int index) {
     if (_selectedIndex != index) {
@@ -78,6 +150,34 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
       return const AuthScreen();
     }
 
+    ref.listen<int>(celebrationTriggerProvider, (prev, next) {
+      if (next > (prev ?? 0)) {
+        _confettiKey.currentState?.trigger();
+        final today = DateTime.now();
+        final doneToday = ref.read(tasksProvider).where((t) {
+          final c = t.completedAt;
+          return t.isCompleted &&
+              c != null &&
+              c.year == today.year &&
+              c.month == today.month &&
+              c.day == today.day;
+        }).length;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+            content: Row(
+              children: [
+                const Icon(Icons.celebration, size: 18, color: AppColors.inProgress),
+                const SizedBox(width: 10),
+                Text('Nice! $doneToday task${doneToday == 1 ? '' : 's'} completed today'),
+              ],
+            ),
+          ),
+        );
+      }
+    });
+
     final sectioned = ref.watch(sectionedTasksProvider);
     final syncStatus = ref.watch(syncStatusProvider).value ?? SyncStatus.offline;
     final overdueCount = sectioned.overdueTasks.length;
@@ -97,8 +197,8 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
 
     final statusColor = _syncColor(syncStatus);
 
-    if (isDesktop) {
-      return Scaffold(
+    final Widget shell = isDesktop
+        ? Scaffold(
         body: Row(
           children: [
             Container(
@@ -295,10 +395,8 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
             ),
           ],
         ),
-      );
-    }
-
-    return Scaffold(
+      )
+        : Scaffold(
       appBar: AppBar(
         backgroundColor: AppColors.sidebar,
         shape: const Border(bottom: BorderSide(color: AppColors.border)),
@@ -416,6 +514,11 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
           ],
         ),
       ),
+    );
+
+    return CelebrationConfettiOverlay(
+      key: _confettiKey,
+      child: shell,
     );
   }
 }

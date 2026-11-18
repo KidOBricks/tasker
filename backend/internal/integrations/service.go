@@ -129,6 +129,14 @@ func (s *Service) RegisterRoutes(se *core.ServeEvent) {
 
 	// Manual sync trigger for the signed-in user
 	se.Router.POST("/api/integrations/sync", s.handleSyncNow).Bind(apis.RequireAuth("users"))
+
+	// Google Calendar selection & bulk AI task parsing
+	se.Router.GET("/api/integrations/google/calendars", s.handleListGoogleCalendars).Bind(apis.RequireAuth("users"))
+	se.Router.PUT("/api/integrations/google/calendars", s.handleSetGoogleCalendars).Bind(apis.RequireAuth("users"))
+	se.Router.POST("/api/tasks/parse-bulk", s.handleParseBulkTasks).Bind(apis.RequireAuth("users"))
+
+	// Trusted taskgivers & public /give/{token} links
+	s.registerTaskgiverRoutes(se)
 }
 
 func (s *Service) RegisterCron() {
@@ -337,11 +345,12 @@ func (s *Service) SyncUser(ctx context.Context, userID string) (SyncStats, error
 
 		switch prov {
 		case "google":
-			events, err := FetchGoogleCalendarEvents(ctx, s.HTTPClient, s.Endpoints.GoogleAPIBase, accessToken, now)
+			calIDs := selectedCalendarIDsFromConn(conn)
+			events, err := FetchGoogleCalendarEvents(ctx, s.HTTPClient, s.Endpoints.GoogleAPIBase, accessToken, now, calIDs...)
 			if err != nil {
 				stats.Errors = append(stats.Errors, fmt.Sprintf("google calendar: %v", err))
 			} else {
-				stats.EventsSynced += s.upsertExternalEvents(userID, events)
+				stats.EventsSynced += s.upsertExternalEvents(userID, events, calIDs)
 			}
 
 			emails, err := FetchGmailUnreadMessages(ctx, s.HTTPClient, s.Endpoints.GoogleAPIBase, accessToken)
@@ -355,7 +364,7 @@ func (s *Service) SyncUser(ctx context.Context, userID string) (SyncStats, error
 			if err != nil {
 				stats.Errors = append(stats.Errors, fmt.Sprintf("outlook calendar: %v", err))
 			} else {
-				stats.EventsSynced += s.upsertExternalEvents(userID, events)
+				stats.EventsSynced += s.upsertExternalEvents(userID, events, nil)
 			}
 		}
 
@@ -453,11 +462,163 @@ func (s *Service) saveConnectionTokens(userID, provider, email, displayName stri
 	return s.App.Save(rec)
 }
 
-func (s *Service) upsertExternalEvents(userID string, events []CalendarEventDTO) int {
+func selectedCalendarIDsFromConn(conn *core.Record) []string {
+	raw := conn.Get("selectedCalendarIds")
+	var ids []string
+	switch v := raw.(type) {
+	case []string:
+		ids = v
+	case []any:
+		for _, item := range v {
+			if str, ok := item.(string); ok && strings.TrimSpace(str) != "" {
+				ids = append(ids, strings.TrimSpace(str))
+			}
+		}
+	default:
+		if txt := strings.TrimSpace(conn.GetString("selectedCalendarIds")); txt != "" && txt != "null" {
+			_ = json.Unmarshal([]byte(txt), &ids)
+		}
+	}
+	if len(ids) == 0 {
+		return []string{"primary"}
+	}
+	return ids
+}
+
+func (s *Service) handleListGoogleCalendars(e *core.RequestEvent) error {
+	conn, err := s.App.FindFirstRecordByFilter(
+		"oauth_connections",
+		"user = {:uid} && provider = 'google'",
+		map[string]any{"uid": e.Auth.Id},
+	)
+	if err != nil || conn == nil {
+		return e.BadRequestError("google account is not connected", err)
+	}
+	accessToken, err := s.ensureFreshAccessToken(e.Request.Context(), conn)
+	if err != nil {
+		return e.Error(http.StatusBadGateway, "failed to refresh google token", err)
+	}
+	calendars, err := FetchGoogleCalendarList(e.Request.Context(), s.HTTPClient, s.Endpoints.GoogleAPIBase, accessToken)
+	if err != nil {
+		return e.Error(http.StatusBadGateway, "failed to fetch google calendars", err)
+	}
+
+	selected := selectedCalendarIDsFromConn(conn)
+	selectedSet := map[string]bool{}
+	for _, id := range selected {
+		selectedSet[id] = true
+	}
+
+	items := make([]map[string]any, 0, len(calendars))
+	for _, cal := range calendars {
+		isSel := selectedSet[cal.ID] || (cal.Primary && selectedSet["primary"])
+		items = append(items, map[string]any{
+			"id":              cal.ID,
+			"summary":         cal.Summary,
+			"primary":         cal.Primary,
+			"backgroundColor": cal.BackgroundColor,
+			"accessRole":      cal.AccessRole,
+			"selected":        isSel,
+		})
+	}
+	return e.JSON(http.StatusOK, map[string]any{
+		"calendars":   items,
+		"selectedIds": selected,
+	})
+}
+
+func (s *Service) handleSetGoogleCalendars(e *core.RequestEvent) error {
+	var body struct {
+		CalendarIDs []string `json:"calendarIds"`
+	}
+	if err := e.BindBody(&body); err != nil {
+		return e.BadRequestError("invalid body", err)
+	}
+	clean := make([]string, 0, len(body.CalendarIDs))
+	seen := map[string]bool{}
+	for _, id := range body.CalendarIDs {
+		trimmed := strings.TrimSpace(id)
+		if trimmed != "" && !seen[trimmed] {
+			seen[trimmed] = true
+			clean = append(clean, trimmed)
+		}
+	}
+	if len(clean) == 0 {
+		clean = []string{"primary"}
+	}
+
+	conn, err := s.App.FindFirstRecordByFilter(
+		"oauth_connections",
+		"user = {:uid} && provider = 'google'",
+		map[string]any{"uid": e.Auth.Id},
+	)
+	if err != nil || conn == nil {
+		return e.BadRequestError("google account is not connected", err)
+	}
+	conn.Set("selectedCalendarIds", clean)
+	if err := s.App.Save(conn); err != nil {
+		return e.InternalServerError("failed to save calendar selection", err)
+	}
+
+	stats, err := s.SyncUser(e.Request.Context(), e.Auth.Id)
+	if err != nil {
+		return e.InternalServerError("calendar sync failed", err)
+	}
+	return e.JSON(http.StatusOK, map[string]any{
+		"selectedIds": clean,
+		"sync":        stats,
+	})
+}
+
+func (s *Service) handleParseBulkTasks(e *core.RequestEvent) error {
+	var body struct {
+		Text string `json:"text"`
+	}
+	if err := e.BindBody(&body); err != nil {
+		return e.BadRequestError("invalid body", err)
+	}
+	raw := strings.TrimSpace(body.Text)
+	if raw == "" {
+		return e.BadRequestError("text is required", nil)
+	}
+	drafts, err := s.Extractor.ExtractBulk(e.Request.Context(), raw)
+	if err != nil {
+		return e.InternalServerError("failed to parse bulk tasks", err)
+	}
+	return e.JSON(http.StatusOK, map[string]any{
+		"tasks": drafts,
+	})
+}
+
+func (s *Service) upsertExternalEvents(userID string, events []CalendarEventDTO, allowedGoogleCalIDs []string) int {
 	col, err := s.App.FindCollectionByNameOrId("external_events")
 	if err != nil {
 		return 0
 	}
+	if len(allowedGoogleCalIDs) > 0 {
+		allowedSet := map[string]bool{}
+		for _, cid := range allowedGoogleCalIDs {
+			allowedSet[cid] = true
+		}
+		existing, _ := s.App.FindRecordsByFilter(
+			"external_events",
+			"user = {:uid} && source = 'google'",
+			"",
+			500,
+			0,
+			map[string]any{"uid": userID},
+		)
+		for _, rec := range existing {
+			cid := rec.GetString("calendarId")
+			if cid == "" {
+				cid = "primary"
+			}
+			if !allowedSet[cid] {
+				_ = s.App.Delete(rec)
+			}
+		}
+	}
+
 	count := 0
 	for _, ev := range events {
 		rec, _ := s.App.FindFirstRecordByFilter(
@@ -472,6 +633,8 @@ func (s *Service) upsertExternalEvents(userID string, events []CalendarEventDTO)
 			rec.Set("externalId", ev.ExternalID)
 			rec.Set("hasLinkedTask", false)
 		}
+		rec.Set("calendarId", ev.CalendarID)
+		rec.Set("calendarName", ev.CalendarName)
 		rec.Set("title", ev.Title)
 		rec.Set("startTime", ev.StartTime.UTC().Format(time.RFC3339))
 		rec.Set("endTime", ev.EndTime.UTC().Format(time.RFC3339))

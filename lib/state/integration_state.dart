@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../data/services/calendar_integration_service.dart';
 import '../data/services/email_integration_service.dart';
+import '../data/services/notification_service.dart';
 import 'auth_state.dart';
 
 final calendarIntegrationServiceProvider = Provider<CalendarIntegrationService>((ref) {
@@ -9,6 +10,10 @@ final calendarIntegrationServiceProvider = Provider<CalendarIntegrationService>(
 
 final emailIntegrationServiceProvider = Provider<EmailIntegrationService>((ref) {
   throw UnimplementedError('emailIntegrationServiceProvider must be initialized');
+});
+
+final notificationServiceProvider = Provider<NotificationService>((ref) {
+  return NotificationService();
 });
 
 // Connected Accounts State

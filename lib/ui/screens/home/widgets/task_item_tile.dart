@@ -3,14 +3,14 @@ import 'package:intl/intl.dart';
 import 'package:task_calendar_sync/domain/models/category_item.dart';
 import 'package:task_calendar_sync/domain/models/task_item.dart';
 import 'package:task_calendar_sync/ui/theme/app_theme.dart';
-import 'package:task_calendar_sync/ui/widgets/celebration_confetti.dart';
 
-class TaskItemTile extends StatelessWidget {
+class TaskItemTile extends StatefulWidget {
   final TaskItem task;
   final List<CategoryItem> categories;
   final VoidCallback onTap;
   final VoidCallback onToggleComplete;
   final VoidCallback onToggleInProgress;
+  final Function(String subtaskId)? onToggleSubtask;
   final VoidCallback? onMarkIgnored;
   final VoidCallback? onDelete;
 
@@ -21,9 +21,19 @@ class TaskItemTile extends StatelessWidget {
     required this.onTap,
     required this.onToggleComplete,
     required this.onToggleInProgress,
+    this.onToggleSubtask,
     this.onMarkIgnored,
     this.onDelete,
   });
+
+  @override
+  State<TaskItemTile> createState() => _TaskItemTileState();
+}
+
+class _TaskItemTileState extends State<TaskItemTile> {
+  bool _subtasksExpanded = false;
+
+  TaskItem get task => widget.task;
 
   Color _getPriorityColor() {
     if (task.isOverdue) return AppColors.overdue;
@@ -33,10 +43,7 @@ class TaskItemTile extends StatelessWidget {
   }
 
   void _handleComplete(BuildContext context) {
-    if (!task.isCompleted) {
-      CelebrationConfettiOverlay.of(context)?.trigger();
-    }
-    onToggleComplete();
+    widget.onToggleComplete();
   }
 
   @override
@@ -48,7 +55,7 @@ class TaskItemTile extends StatelessWidget {
         ? AppColors.inProgress.withValues(alpha: 0.45)
         : (task.isOverdue ? AppColors.overdue.withValues(alpha: 0.35) : AppColors.border);
 
-    final category = categories.firstWhere(
+    final category = widget.categories.firstWhere(
       (c) => c.id == task.categoryId,
       orElse: () => const CategoryItem(id: 'all', name: 'General', colorValue: 0xFF7D7870),
     );
@@ -65,11 +72,14 @@ class TaskItemTile extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
           hoverColor: AppColors.surfaceLight,
-          onTap: onTap,
+          onTap: widget.onTap,
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 // 8px status dot
                 Container(
@@ -159,6 +169,42 @@ class TaskItemTile extends StatelessWidget {
                                 ),
                               ],
                             ),
+                          if (task.givenByName != null && task.givenByName!.isNotEmpty)
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: AppColors.primary.withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                'From ${task.givenByName}',
+                                style: const TextStyle(fontSize: 11, color: AppColors.primary, fontWeight: FontWeight.w500),
+                              ),
+                            ),
+                          if (task.hasSubtasks)
+                            InkWell(
+                              borderRadius: BorderRadius.circular(6),
+                              onTap: () => setState(() => _subtasksExpanded = !_subtasksExpanded),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.checklist, size: 13, color: AppColors.textSecondary),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      '${task.completedSubtaskCount}/${task.subtasks.length}',
+                                      style: AppTheme.mono(11, color: AppColors.textSecondary),
+                                    ),
+                                    Icon(
+                                      _subtasksExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
+                                      size: 14,
+                                      color: AppColors.textMuted,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                     ],
@@ -173,7 +219,7 @@ class TaskItemTile extends StatelessWidget {
                   children: [
                     IconButton(
                       tooltip: isInProgress ? 'Unmark in progress' : 'Mark in progress',
-                      onPressed: onToggleInProgress,
+                      onPressed: widget.onToggleInProgress,
                       constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
                       padding: EdgeInsets.zero,
                       style: IconButton.styleFrom(
@@ -213,16 +259,16 @@ class TaskItemTile extends StatelessWidget {
                       onSelected: (val) {
                         switch (val) {
                           case 'edit':
-                            onTap();
+                            widget.onTap();
                             break;
                           case 'in_progress':
-                            onToggleInProgress();
+                            widget.onToggleInProgress();
                             break;
                           case 'ignore':
-                            onMarkIgnored?.call();
+                            widget.onMarkIgnored?.call();
                             break;
                           case 'delete':
-                            onDelete?.call();
+                            widget.onDelete?.call();
                             break;
                         }
                       },
@@ -279,6 +325,47 @@ class TaskItemTile extends StatelessWidget {
                     ),
                   ],
                 ),
+                  ],
+                ),
+                if (_subtasksExpanded && task.hasSubtasks) ...[
+                  const SizedBox(height: 8),
+                  const Divider(height: 1, color: AppColors.border),
+                  const SizedBox(height: 6),
+                  ...task.subtasks.map((sub) => InkWell(
+                        onTap: () => widget.onToggleSubtask?.call(sub.id),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                          child: Row(
+                            children: [
+                              SizedBox(
+                                width: 22,
+                                height: 22,
+                                child: Checkbox(
+                                  value: sub.isCompleted,
+                                  onChanged: (_) => widget.onToggleSubtask?.call(sub.id),
+                                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  sub.title,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: sub.isCompleted ? AppColors.textMuted : AppColors.textSecondary,
+                                    decoration: sub.isCompleted ? TextDecoration.lineThrough : null,
+                                  ),
+                                ),
+                              ),
+                              Text(
+                                'L${sub.baseImportance}',
+                                style: AppTheme.mono(10, color: AppColors.textMuted),
+                              ),
+                            ],
+                          ),
+                        ),
+                      )),
+                ],
               ],
             ),
           ),

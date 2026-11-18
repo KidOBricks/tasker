@@ -37,6 +37,9 @@ func EnsureSchema(app core.App) error {
 	if err := ensureTaskSuggestionsCollection(app, usersCol.Id); err != nil {
 		return err
 	}
+	if err := ensureTrustedTaskgiversCollection(app, usersCol.Id); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -141,6 +144,7 @@ func ensureUserProfilesCollection(app core.App, usersColId string) error {
 	ensureField(col, &core.TextField{Name: "vacationNotificationFilter", Max: 40})
 	ensureField(col, &core.BoolField{Name: "notificationsEnabled"})
 	ensureField(col, &core.NumberField{Name: "notifyPriorHours"})
+	ensureField(col, &core.NumberField{Name: "notifyPriorMinutes"})
 	ensureField(col, &core.TextField{Name: "notifyForTier", Max: 40})
 	ensureField(col, &core.BoolField{Name: "notifyForOverdue"})
 	ensureField(col, &core.BoolField{Name: "reviewTasksEnabled"})
@@ -233,6 +237,9 @@ func ensureTasksCollection(app core.App, usersColId string) error {
 	ensureField(col, &core.TextField{Name: "recurrenceRuleId", Max: 120})
 	ensureField(col, &core.TextField{Name: "calendarEventId", Max: 240})
 	ensureField(col, &core.JSONField{Name: "emailRef"})
+	ensureField(col, &core.JSONField{Name: "subtasks"})
+	ensureField(col, &core.TextField{Name: "givenById", Max: 120})
+	ensureField(col, &core.TextField{Name: "givenByName", Max: 120})
 	ensureField(col, &core.TextField{Name: "clientUpdatedAt", Max: 40})
 	ensureField(col, &core.TextField{Name: "deletedAt", Max: 40})
 	ensureAutodateFields(col)
@@ -261,6 +268,7 @@ func ensureOAuthConnectionsCollection(app core.App, usersColId string) error {
 	ensureField(col, &core.TextField{Name: "encryptedRefreshToken", Max: 8192})
 	ensureField(col, &core.TextField{Name: "expiresAt", Max: 40})
 	ensureField(col, &core.TextField{Name: "scopes", Max: 500})
+	ensureField(col, &core.JSONField{Name: "selectedCalendarIds"})
 	ensureField(col, &core.TextField{Name: "lastSyncedAt", Max: 40})
 	ensureAutodateFields(col)
 	col.AddIndex("idx_oauth_user_provider", true, "user, provider", "")
@@ -282,6 +290,8 @@ func ensureExternalEventsCollection(app core.App, usersColId string) error {
 	ensureField(col, &core.RelationField{Name: "user", CollectionId: usersColId, MaxSelect: 1, Required: true, CascadeDelete: true})
 	ensureField(col, &core.TextField{Name: "externalId", Required: true, Max: 240})
 	ensureField(col, &core.TextField{Name: "source", Required: true, Max: 30})
+	ensureField(col, &core.TextField{Name: "calendarId", Max: 240})
+	ensureField(col, &core.TextField{Name: "calendarName", Max: 200})
 	ensureField(col, &core.TextField{Name: "title", Max: 300})
 	ensureField(col, &core.TextField{Name: "startTime", Max: 40})
 	ensureField(col, &core.TextField{Name: "endTime", Max: 40})
@@ -322,6 +332,25 @@ func ensureTaskSuggestionsCollection(app core.App, usersColId string) error {
 	ensureField(col, &core.TextField{Name: "status", Max: 30})
 	ensureAutodateFields(col)
 	col.AddIndex("idx_suggestions_user_email", true, "user, emailId", "")
+
+	return app.Save(col)
+}
+
+func ensureTrustedTaskgiversCollection(app core.App, usersColId string) error {
+	col, err := app.FindCollectionByNameOrId("trusted_taskgivers")
+	if err != nil {
+		col = core.NewBaseCollection("trusted_taskgivers")
+	}
+	setUserOwnedRules(col)
+
+	ensureField(col, &core.RelationField{Name: "user", CollectionId: usersColId, MaxSelect: 1, Required: true, CascadeDelete: true})
+	ensureField(col, &core.TextField{Name: "name", Required: true, Max: 120})
+	ensureField(col, &core.EmailField{Name: "email"})
+	ensureField(col, &core.TextField{Name: "token", Required: true, Max: 120})
+	ensureField(col, &core.BoolField{Name: "isActive"})
+	ensureAutodateFields(col)
+	col.AddIndex("idx_taskgivers_token", true, "token", "")
+	col.AddIndex("idx_taskgivers_user", false, "user", "")
 
 	return app.Save(col)
 }

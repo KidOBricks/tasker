@@ -57,6 +57,7 @@ class ProfileNotifier extends Notifier<UserProfile> {
     String? vacationNotificationFilter,
     bool? notificationsEnabled,
     int? notifyPriorHours,
+    int? notifyPriorMinutes,
     String? notifyForTier,
     bool? notifyForOverdue,
     bool? reviewTasksEnabled,
@@ -86,6 +87,7 @@ class ProfileNotifier extends Notifier<UserProfile> {
       vacationNotificationFilter: vacationNotificationFilter,
       notificationsEnabled: notificationsEnabled,
       notifyPriorHours: notifyPriorHours,
+      notifyPriorMinutes: notifyPriorMinutes,
       notifyForTier: notifyForTier,
       notifyForOverdue: notifyForOverdue,
       reviewTasksEnabled: reviewTasksEnabled,
@@ -236,6 +238,18 @@ class RecurrenceRulesNotifier extends Notifier<List<RecurrenceRule>> {
 final recurrenceRulesProvider =
     NotifierProvider<RecurrenceRulesNotifier, List<RecurrenceRule>>(RecurrenceRulesNotifier.new);
 
+// --- Celebration Event Signal ---
+class CelebrationNotifier extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void celebrate() {
+    state = state + 1;
+  }
+}
+
+final celebrationTriggerProvider = NotifierProvider<CelebrationNotifier, int>(CelebrationNotifier.new);
+
 // --- Task List State ---
 class TasksNotifier extends Notifier<List<TaskItem>> {
   @override
@@ -257,6 +271,7 @@ class TasksNotifier extends Notifier<List<TaskItem>> {
     RecurrenceRule? recurrenceRule,
     String? calendarEventId,
     Map<String, dynamic>? emailRef,
+    List<SubtaskItem> subtasks = const [],
   }) async {
     final profile = ref.read(profileProvider);
     final now = DateTime.now();
@@ -281,7 +296,8 @@ class TasksNotifier extends Notifier<List<TaskItem>> {
       recurrenceRuleId: ruleId,
       calendarEventId: calendarEventId,
       emailRef: emailRef,
-    );
+      subtasks: subtasks,
+    ).recalculateFromSubtasks(currentTime: now);
 
     final evaluatedTask = PriorityEngine.evaluate(rawTask, profile, currentTime: now);
     final updated = [...state, evaluatedTask];
@@ -299,10 +315,69 @@ class TasksNotifier extends Notifier<List<TaskItem>> {
         );
   }
 
+  Future<void> addBulkTasks({
+    required List<({String title, String? description, String categoryId, int baseImportance})> items,
+    DateTime? sharedDueDate,
+  }) async {
+    if (items.isEmpty) return;
+    final profile = ref.read(profileProvider);
+    final now = DateTime.now();
+    final created = <TaskItem>[];
+
+    for (final item in items) {
+      final cleanTitle = item.title.trim();
+      if (cleanTitle.isEmpty) continue;
+      final rawTask = TaskItem(
+        id: _uuid.v4(),
+        userId: profile.uid,
+        title: cleanTitle,
+        description: item.description?.trim().isEmpty == true ? null : item.description?.trim(),
+        categoryId: item.categoryId,
+        baseImportance: item.baseImportance.clamp(1, profile.numImportanceLevels),
+        effectiveImportance: item.baseImportance.clamp(1, profile.numImportanceLevels),
+        dueDate: sharedDueDate,
+        createdAt: now,
+      );
+      created.add(PriorityEngine.evaluate(rawTask, profile, currentTime: now));
+    }
+    if (created.isEmpty) return;
+
+    final updated = [...state, ...created];
+    state = updated;
+    await ref.read(repositoryProvider).saveTasks(updated);
+    _triggerBackgroundSync(ref);
+
+    for (final t in created) {
+      ref.read(taskHistoryProvider.notifier).logAction(
+            taskId: t.id,
+            taskTitle: t.title,
+            action: 'created',
+            description: 'Bulk-added task "${t.title}"',
+            previousState: null,
+            newState: t,
+          );
+    }
+  }
+
+  Future<void> toggleSubtask(String taskId, String subtaskId) async {
+    final task = state.firstWhere((t) => t.id == taskId);
+    final nextSubs = task.subtasks
+        .map((s) => s.id == subtaskId ? s.copyWith(isCompleted: !s.isCompleted) : s)
+        .toList();
+    final recalculated = task.copyWith(subtasks: nextSubs).recalculateFromSubtasks();
+    if (!task.isCompleted && recalculated.isCompleted) {
+      await updateTask(recalculated.copyWith(status: task.status, clearCompletedAt: true));
+      await markCompleted(taskId);
+    } else {
+      await updateTask(recalculated);
+    }
+  }
+
   Future<void> updateTask(TaskItem updatedTask) async {
     final profile = ref.read(profileProvider);
-    final previous = state.firstWhere((t) => t.id == updatedTask.id, orElse: () => updatedTask);
-    final evaluated = PriorityEngine.evaluate(updatedTask, profile);
+    final normalized = updatedTask.recalculateFromSubtasks();
+    final previous = state.firstWhere((t) => t.id == normalized.id, orElse: () => normalized);
+    final evaluated = PriorityEngine.evaluate(normalized, profile);
     final updatedList = state.map((t) => t.id == evaluated.id ? evaluated : t).toList();
     state = updatedList;
     await ref.read(repositoryProvider).saveTasks(updatedList);
@@ -398,6 +473,7 @@ class TasksNotifier extends Notifier<List<TaskItem>> {
       );
       await updateTask(completed);
     }
+    ref.read(celebrationTriggerProvider.notifier).celebrate();
   }
 
   Future<void> markIgnored(String taskId) async {

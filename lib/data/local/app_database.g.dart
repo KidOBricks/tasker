@@ -216,6 +216,40 @@ class $LocalTasksTable extends LocalTasks
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _subtasksJsonMeta = const VerificationMeta(
+    'subtasksJson',
+  );
+  @override
+  late final GeneratedColumn<String> subtasksJson = GeneratedColumn<String>(
+    'subtasks_json',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('[]'),
+  );
+  static const VerificationMeta _givenByIdMeta = const VerificationMeta(
+    'givenById',
+  );
+  @override
+  late final GeneratedColumn<String> givenById = GeneratedColumn<String>(
+    'given_by_id',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
+  static const VerificationMeta _givenByNameMeta = const VerificationMeta(
+    'givenByName',
+  );
+  @override
+  late final GeneratedColumn<String> givenByName = GeneratedColumn<String>(
+    'given_by_name',
+    aliasedName,
+    true,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _updatedAtMeta = const VerificationMeta(
     'updatedAt',
   );
@@ -259,6 +293,9 @@ class $LocalTasksTable extends LocalTasks
     recurrenceRuleId,
     calendarEventId,
     emailRefJson,
+    subtasksJson,
+    givenById,
+    givenByName,
     updatedAt,
     deletedAt,
   ];
@@ -420,6 +457,30 @@ class $LocalTasksTable extends LocalTasks
         ),
       );
     }
+    if (data.containsKey('subtasks_json')) {
+      context.handle(
+        _subtasksJsonMeta,
+        subtasksJson.isAcceptableOrUnknown(
+          data['subtasks_json']!,
+          _subtasksJsonMeta,
+        ),
+      );
+    }
+    if (data.containsKey('given_by_id')) {
+      context.handle(
+        _givenByIdMeta,
+        givenById.isAcceptableOrUnknown(data['given_by_id']!, _givenByIdMeta),
+      );
+    }
+    if (data.containsKey('given_by_name')) {
+      context.handle(
+        _givenByNameMeta,
+        givenByName.isAcceptableOrUnknown(
+          data['given_by_name']!,
+          _givenByNameMeta,
+        ),
+      );
+    }
     if (data.containsKey('updated_at')) {
       context.handle(
         _updatedAtMeta,
@@ -519,6 +580,18 @@ class $LocalTasksTable extends LocalTasks
         DriftSqlType.string,
         data['${effectivePrefix}email_ref_json'],
       ),
+      subtasksJson: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}subtasks_json'],
+      )!,
+      givenById: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}given_by_id'],
+      ),
+      givenByName: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}given_by_name'],
+      ),
       updatedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.dateTime,
         data['${effectivePrefix}updated_at'],
@@ -556,6 +629,9 @@ class LocalTask extends DataClass implements Insertable<LocalTask> {
   final String? recurrenceRuleId;
   final String? calendarEventId;
   final String? emailRefJson;
+  final String subtasksJson;
+  final String? givenById;
+  final String? givenByName;
   final DateTime updatedAt;
   final DateTime? deletedAt;
   const LocalTask({
@@ -578,6 +654,9 @@ class LocalTask extends DataClass implements Insertable<LocalTask> {
     this.recurrenceRuleId,
     this.calendarEventId,
     this.emailRefJson,
+    required this.subtasksJson,
+    this.givenById,
+    this.givenByName,
     required this.updatedAt,
     this.deletedAt,
   });
@@ -620,6 +699,13 @@ class LocalTask extends DataClass implements Insertable<LocalTask> {
     }
     if (!nullToAbsent || emailRefJson != null) {
       map['email_ref_json'] = Variable<String>(emailRefJson);
+    }
+    map['subtasks_json'] = Variable<String>(subtasksJson);
+    if (!nullToAbsent || givenById != null) {
+      map['given_by_id'] = Variable<String>(givenById);
+    }
+    if (!nullToAbsent || givenByName != null) {
+      map['given_by_name'] = Variable<String>(givenByName);
     }
     map['updated_at'] = Variable<DateTime>(updatedAt);
     if (!nullToAbsent || deletedAt != null) {
@@ -665,6 +751,13 @@ class LocalTask extends DataClass implements Insertable<LocalTask> {
       emailRefJson: emailRefJson == null && nullToAbsent
           ? const Value.absent()
           : Value(emailRefJson),
+      subtasksJson: Value(subtasksJson),
+      givenById: givenById == null && nullToAbsent
+          ? const Value.absent()
+          : Value(givenById),
+      givenByName: givenByName == null && nullToAbsent
+          ? const Value.absent()
+          : Value(givenByName),
       updatedAt: Value(updatedAt),
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
@@ -701,6 +794,9 @@ class LocalTask extends DataClass implements Insertable<LocalTask> {
       recurrenceRuleId: serializer.fromJson<String?>(json['recurrenceRuleId']),
       calendarEventId: serializer.fromJson<String?>(json['calendarEventId']),
       emailRefJson: serializer.fromJson<String?>(json['emailRefJson']),
+      subtasksJson: serializer.fromJson<String>(json['subtasksJson']),
+      givenById: serializer.fromJson<String?>(json['givenById']),
+      givenByName: serializer.fromJson<String?>(json['givenByName']),
       updatedAt: serializer.fromJson<DateTime>(json['updatedAt']),
       deletedAt: serializer.fromJson<DateTime?>(json['deletedAt']),
     );
@@ -728,6 +824,9 @@ class LocalTask extends DataClass implements Insertable<LocalTask> {
       'recurrenceRuleId': serializer.toJson<String?>(recurrenceRuleId),
       'calendarEventId': serializer.toJson<String?>(calendarEventId),
       'emailRefJson': serializer.toJson<String?>(emailRefJson),
+      'subtasksJson': serializer.toJson<String>(subtasksJson),
+      'givenById': serializer.toJson<String?>(givenById),
+      'givenByName': serializer.toJson<String?>(givenByName),
       'updatedAt': serializer.toJson<DateTime>(updatedAt),
       'deletedAt': serializer.toJson<DateTime?>(deletedAt),
     };
@@ -753,6 +852,9 @@ class LocalTask extends DataClass implements Insertable<LocalTask> {
     Value<String?> recurrenceRuleId = const Value.absent(),
     Value<String?> calendarEventId = const Value.absent(),
     Value<String?> emailRefJson = const Value.absent(),
+    String? subtasksJson,
+    Value<String?> givenById = const Value.absent(),
+    Value<String?> givenByName = const Value.absent(),
     DateTime? updatedAt,
     Value<DateTime?> deletedAt = const Value.absent(),
   }) => LocalTask(
@@ -779,6 +881,9 @@ class LocalTask extends DataClass implements Insertable<LocalTask> {
         ? calendarEventId.value
         : this.calendarEventId,
     emailRefJson: emailRefJson.present ? emailRefJson.value : this.emailRefJson,
+    subtasksJson: subtasksJson ?? this.subtasksJson,
+    givenById: givenById.present ? givenById.value : this.givenById,
+    givenByName: givenByName.present ? givenByName.value : this.givenByName,
     updatedAt: updatedAt ?? this.updatedAt,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
   );
@@ -823,6 +928,13 @@ class LocalTask extends DataClass implements Insertable<LocalTask> {
       emailRefJson: data.emailRefJson.present
           ? data.emailRefJson.value
           : this.emailRefJson,
+      subtasksJson: data.subtasksJson.present
+          ? data.subtasksJson.value
+          : this.subtasksJson,
+      givenById: data.givenById.present ? data.givenById.value : this.givenById,
+      givenByName: data.givenByName.present
+          ? data.givenByName.value
+          : this.givenByName,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
     );
@@ -850,6 +962,9 @@ class LocalTask extends DataClass implements Insertable<LocalTask> {
           ..write('recurrenceRuleId: $recurrenceRuleId, ')
           ..write('calendarEventId: $calendarEventId, ')
           ..write('emailRefJson: $emailRefJson, ')
+          ..write('subtasksJson: $subtasksJson, ')
+          ..write('givenById: $givenById, ')
+          ..write('givenByName: $givenByName, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt')
           ..write(')'))
@@ -877,6 +992,9 @@ class LocalTask extends DataClass implements Insertable<LocalTask> {
     recurrenceRuleId,
     calendarEventId,
     emailRefJson,
+    subtasksJson,
+    givenById,
+    givenByName,
     updatedAt,
     deletedAt,
   ]);
@@ -903,6 +1021,9 @@ class LocalTask extends DataClass implements Insertable<LocalTask> {
           other.recurrenceRuleId == this.recurrenceRuleId &&
           other.calendarEventId == this.calendarEventId &&
           other.emailRefJson == this.emailRefJson &&
+          other.subtasksJson == this.subtasksJson &&
+          other.givenById == this.givenById &&
+          other.givenByName == this.givenByName &&
           other.updatedAt == this.updatedAt &&
           other.deletedAt == this.deletedAt);
 }
@@ -927,6 +1048,9 @@ class LocalTasksCompanion extends UpdateCompanion<LocalTask> {
   final Value<String?> recurrenceRuleId;
   final Value<String?> calendarEventId;
   final Value<String?> emailRefJson;
+  final Value<String> subtasksJson;
+  final Value<String?> givenById;
+  final Value<String?> givenByName;
   final Value<DateTime> updatedAt;
   final Value<DateTime?> deletedAt;
   final Value<int> rowid;
@@ -950,6 +1074,9 @@ class LocalTasksCompanion extends UpdateCompanion<LocalTask> {
     this.recurrenceRuleId = const Value.absent(),
     this.calendarEventId = const Value.absent(),
     this.emailRefJson = const Value.absent(),
+    this.subtasksJson = const Value.absent(),
+    this.givenById = const Value.absent(),
+    this.givenByName = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -974,6 +1101,9 @@ class LocalTasksCompanion extends UpdateCompanion<LocalTask> {
     this.recurrenceRuleId = const Value.absent(),
     this.calendarEventId = const Value.absent(),
     this.emailRefJson = const Value.absent(),
+    this.subtasksJson = const Value.absent(),
+    this.givenById = const Value.absent(),
+    this.givenByName = const Value.absent(),
     required DateTime updatedAt,
     this.deletedAt = const Value.absent(),
     this.rowid = const Value.absent(),
@@ -1002,6 +1132,9 @@ class LocalTasksCompanion extends UpdateCompanion<LocalTask> {
     Expression<String>? recurrenceRuleId,
     Expression<String>? calendarEventId,
     Expression<String>? emailRefJson,
+    Expression<String>? subtasksJson,
+    Expression<String>? givenById,
+    Expression<String>? givenByName,
     Expression<DateTime>? updatedAt,
     Expression<DateTime>? deletedAt,
     Expression<int>? rowid,
@@ -1028,6 +1161,9 @@ class LocalTasksCompanion extends UpdateCompanion<LocalTask> {
       if (recurrenceRuleId != null) 'recurrence_rule_id': recurrenceRuleId,
       if (calendarEventId != null) 'calendar_event_id': calendarEventId,
       if (emailRefJson != null) 'email_ref_json': emailRefJson,
+      if (subtasksJson != null) 'subtasks_json': subtasksJson,
+      if (givenById != null) 'given_by_id': givenById,
+      if (givenByName != null) 'given_by_name': givenByName,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (deletedAt != null) 'deleted_at': deletedAt,
       if (rowid != null) 'rowid': rowid,
@@ -1054,6 +1190,9 @@ class LocalTasksCompanion extends UpdateCompanion<LocalTask> {
     Value<String?>? recurrenceRuleId,
     Value<String?>? calendarEventId,
     Value<String?>? emailRefJson,
+    Value<String>? subtasksJson,
+    Value<String?>? givenById,
+    Value<String?>? givenByName,
     Value<DateTime>? updatedAt,
     Value<DateTime?>? deletedAt,
     Value<int>? rowid,
@@ -1078,6 +1217,9 @@ class LocalTasksCompanion extends UpdateCompanion<LocalTask> {
       recurrenceRuleId: recurrenceRuleId ?? this.recurrenceRuleId,
       calendarEventId: calendarEventId ?? this.calendarEventId,
       emailRefJson: emailRefJson ?? this.emailRefJson,
+      subtasksJson: subtasksJson ?? this.subtasksJson,
+      givenById: givenById ?? this.givenById,
+      givenByName: givenByName ?? this.givenByName,
       updatedAt: updatedAt ?? this.updatedAt,
       deletedAt: deletedAt ?? this.deletedAt,
       rowid: rowid ?? this.rowid,
@@ -1146,6 +1288,15 @@ class LocalTasksCompanion extends UpdateCompanion<LocalTask> {
     if (emailRefJson.present) {
       map['email_ref_json'] = Variable<String>(emailRefJson.value);
     }
+    if (subtasksJson.present) {
+      map['subtasks_json'] = Variable<String>(subtasksJson.value);
+    }
+    if (givenById.present) {
+      map['given_by_id'] = Variable<String>(givenById.value);
+    }
+    if (givenByName.present) {
+      map['given_by_name'] = Variable<String>(givenByName.value);
+    }
     if (updatedAt.present) {
       map['updated_at'] = Variable<DateTime>(updatedAt.value);
     }
@@ -1180,6 +1331,9 @@ class LocalTasksCompanion extends UpdateCompanion<LocalTask> {
           ..write('recurrenceRuleId: $recurrenceRuleId, ')
           ..write('calendarEventId: $calendarEventId, ')
           ..write('emailRefJson: $emailRefJson, ')
+          ..write('subtasksJson: $subtasksJson, ')
+          ..write('givenById: $givenById, ')
+          ..write('givenByName: $givenByName, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('deletedAt: $deletedAt, ')
           ..write('rowid: $rowid')
@@ -5402,6 +5556,9 @@ typedef $$LocalTasksTableCreateCompanionBuilder = LocalTasksCompanion Function({
   Value<String?> recurrenceRuleId,
   Value<String?> calendarEventId,
   Value<String?> emailRefJson,
+  Value<String> subtasksJson,
+  Value<String?> givenById,
+  Value<String?> givenByName,
   required DateTime updatedAt,
   Value<DateTime?> deletedAt,
   Value<int> rowid,
@@ -5426,6 +5583,9 @@ typedef $$LocalTasksTableUpdateCompanionBuilder = LocalTasksCompanion Function({
   Value<String?> recurrenceRuleId,
   Value<String?> calendarEventId,
   Value<String?> emailRefJson,
+  Value<String> subtasksJson,
+  Value<String?> givenById,
+  Value<String?> givenByName,
   Value<DateTime> updatedAt,
   Value<DateTime?> deletedAt,
   Value<int> rowid,
@@ -5532,6 +5692,21 @@ class $$LocalTasksTableFilterComposer
 
   ColumnFilters<String> get emailRefJson => $composableBuilder(
     column: $table.emailRefJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get subtasksJson => $composableBuilder(
+    column: $table.subtasksJson,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get givenById => $composableBuilder(
+    column: $table.givenById,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get givenByName => $composableBuilder(
+    column: $table.givenByName,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -5650,6 +5825,21 @@ class $$LocalTasksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<String> get subtasksJson => $composableBuilder(
+    column: $table.subtasksJson,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get givenById => $composableBuilder(
+    column: $table.givenById,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get givenByName => $composableBuilder(
+    column: $table.givenByName,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<DateTime> get updatedAt => $composableBuilder(
     column: $table.updatedAt,
     builder: (column) => ColumnOrderings(column),
@@ -5747,6 +5937,19 @@ class $$LocalTasksTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<String> get subtasksJson => $composableBuilder(
+    column: $table.subtasksJson,
+    builder: (column) => column,
+  );
+
+  GeneratedColumn<String> get givenById =>
+      $composableBuilder(column: $table.givenById, builder: (column) => column);
+
+  GeneratedColumn<String> get givenByName => $composableBuilder(
+    column: $table.givenByName,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<DateTime> get updatedAt =>
       $composableBuilder(column: $table.updatedAt, builder: (column) => column);
 
@@ -5804,6 +6007,9 @@ class $$LocalTasksTableTableManager
                 Value<String?> recurrenceRuleId = const Value.absent(),
                 Value<String?> calendarEventId = const Value.absent(),
                 Value<String?> emailRefJson = const Value.absent(),
+                Value<String> subtasksJson = const Value.absent(),
+                Value<String?> givenById = const Value.absent(),
+                Value<String?> givenByName = const Value.absent(),
                 Value<DateTime> updatedAt = const Value.absent(),
                 Value<DateTime?> deletedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -5827,6 +6033,9 @@ class $$LocalTasksTableTableManager
                 recurrenceRuleId: recurrenceRuleId,
                 calendarEventId: calendarEventId,
                 emailRefJson: emailRefJson,
+                subtasksJson: subtasksJson,
+                givenById: givenById,
+                givenByName: givenByName,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,
                 rowid: rowid,
@@ -5852,6 +6061,9 @@ class $$LocalTasksTableTableManager
                 Value<String?> recurrenceRuleId = const Value.absent(),
                 Value<String?> calendarEventId = const Value.absent(),
                 Value<String?> emailRefJson = const Value.absent(),
+                Value<String> subtasksJson = const Value.absent(),
+                Value<String?> givenById = const Value.absent(),
+                Value<String?> givenByName = const Value.absent(),
                 required DateTime updatedAt,
                 Value<DateTime?> deletedAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
@@ -5875,6 +6087,9 @@ class $$LocalTasksTableTableManager
                 recurrenceRuleId: recurrenceRuleId,
                 calendarEventId: calendarEventId,
                 emailRefJson: emailRefJson,
+                subtasksJson: subtasksJson,
+                givenById: givenById,
+                givenByName: givenByName,
                 updatedAt: updatedAt,
                 deletedAt: deletedAt,
                 rowid: rowid,

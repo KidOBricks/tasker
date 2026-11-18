@@ -27,8 +27,16 @@ type Suggestion struct {
 	DaysUntilDue *int   `json:"daysUntilDue"`
 }
 
+type BulkTaskDraft struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	CategoryID  string `json:"categoryId"`
+	Importance  int    `json:"importance"`
+}
+
 type ExtractorProvider interface {
 	Extract(ctx context.Context, email EmailInput) (Suggestion, error)
+	ExtractBulk(ctx context.Context, rawText string) ([]BulkTaskDraft, error)
 }
 
 type Config struct {
@@ -133,6 +141,15 @@ func (r *ResilientExtractor) Extract(ctx context.Context, email EmailInput) (Sug
 	return r.Fallback.Extract(ctx, email)
 }
 
+func (r *ResilientExtractor) ExtractBulk(ctx context.Context, rawText string) ([]BulkTaskDraft, error) {
+	if r.Primary != nil {
+		if drafts, err := r.Primary.ExtractBulk(ctx, rawText); err == nil && len(drafts) > 0 {
+			return normalizeBulkDrafts(drafts), nil
+		}
+	}
+	return r.Fallback.ExtractBulk(ctx, rawText)
+}
+
 func buildPrompt(email EmailInput) string {
 	return fmt.Sprintf(`You are an executive assistant extracting an actionable task from an email.
 Analyze this email:
@@ -148,18 +165,77 @@ Return ONLY valid raw JSON (no markdown fences) with these keys:
 - "daysUntilDue": integer days until due (e.g. 1 for tomorrow) or null`, email.Sender, email.Subject, email.Snippet)
 }
 
-func parseSuggestionJSON(raw string, email EmailInput) (Suggestion, error) {
+func stripJSONFences(raw string) string {
 	clean := strings.TrimSpace(raw)
 	clean = strings.TrimPrefix(clean, "```json")
 	clean = strings.TrimPrefix(clean, "```")
 	clean = strings.TrimSuffix(clean, "```")
-	clean = strings.TrimSpace(clean)
+	return strings.TrimSpace(clean)
+}
 
+func parseSuggestionJSON(raw string, email EmailInput) (Suggestion, error) {
 	var s Suggestion
-	if err := json.Unmarshal([]byte(clean), &s); err != nil {
+	if err := json.Unmarshal([]byte(stripJSONFences(raw)), &s); err != nil {
 		return Suggestion{}, err
 	}
 	return normalizeSuggestion(s, email), nil
+}
+
+func buildBulkPrompt(rawText string) string {
+	return fmt.Sprintf(`Split and organize the following pasted notes/text into discrete actionable tasks.
+Input text:
+%s
+
+Return ONLY a valid raw JSON array (no markdown fences) where each item has:
+- "title": concise actionable task title (max 12 words)
+- "description": brief extra detail or empty string ""
+- "categoryId": one of ["work", "personal", "study"]
+- "importance": integer 1 (low), 2 (medium), or 3 (urgent)`, rawText)
+}
+
+func normalizeCategory(cat string) string {
+	switch strings.ToLower(strings.TrimSpace(cat)) {
+	case "work", "personal", "study":
+		return strings.ToLower(strings.TrimSpace(cat))
+	default:
+		return "work"
+	}
+}
+
+func normalizeImportance(imp int) int {
+	if imp < 1 || imp > 3 {
+		return 2
+	}
+	return imp
+}
+
+func normalizeBulkDrafts(items []BulkTaskDraft) []BulkTaskDraft {
+	out := make([]BulkTaskDraft, 0, len(items))
+	for _, item := range items {
+		title := strings.TrimSpace(item.Title)
+		if title == "" {
+			continue
+		}
+		out = append(out, BulkTaskDraft{
+			Title:       title,
+			Description: strings.TrimSpace(item.Description),
+			CategoryID:  normalizeCategory(item.CategoryID),
+			Importance:  normalizeImportance(item.Importance),
+		})
+	}
+	return out
+}
+
+func parseBulkJSON(raw string) ([]BulkTaskDraft, error) {
+	var items []BulkTaskDraft
+	if err := json.Unmarshal([]byte(stripJSONFences(raw)), &items); err != nil {
+		return nil, err
+	}
+	normalized := normalizeBulkDrafts(items)
+	if len(normalized) == 0 {
+		return nil, fmt.Errorf("empty bulk task list")
+	}
+	return normalized, nil
 }
 
 func normalizeSuggestion(s Suggestion, email EmailInput) Suggestion {
@@ -187,15 +263,11 @@ type GeminiExtractor struct {
 	Client  *http.Client
 }
 
-func (g *GeminiExtractor) Extract(ctx context.Context, email EmailInput) (Suggestion, error) {
+func (g *GeminiExtractor) callText(ctx context.Context, prompt string) (string, error) {
 	url := fmt.Sprintf("%s/v1beta/models/%s:generateContent?key=%s", g.BaseURL, g.Model, g.APIKey)
 	body := map[string]any{
 		"contents": []map[string]any{
-			{
-				"parts": []map[string]string{
-					{"text": buildPrompt(email)},
-				},
-			},
+			{"parts": []map[string]string{{"text": prompt}}},
 		},
 		"generationConfig": map[string]any{
 			"responseMimeType": "application/json",
@@ -203,26 +275,26 @@ func (g *GeminiExtractor) Extract(ctx context.Context, email EmailInput) (Sugges
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return Suggestion{}, err
+		return "", err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return Suggestion{}, err
+		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := g.Client.Do(req)
 	if err != nil {
-		return Suggestion{}, err
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return Suggestion{}, err
+		return "", err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return Suggestion{}, fmt.Errorf("gemini status %d: %s", resp.StatusCode, string(respBytes))
+		return "", fmt.Errorf("gemini status %d: %s", resp.StatusCode, string(respBytes))
 	}
 
 	var parsed struct {
@@ -235,12 +307,28 @@ func (g *GeminiExtractor) Extract(ctx context.Context, email EmailInput) (Sugges
 		} `json:"candidates"`
 	}
 	if err := json.Unmarshal(respBytes, &parsed); err != nil {
-		return Suggestion{}, err
+		return "", err
 	}
 	if len(parsed.Candidates) == 0 || len(parsed.Candidates[0].Content.Parts) == 0 {
-		return Suggestion{}, fmt.Errorf("gemini returned empty candidates")
+		return "", fmt.Errorf("gemini returned empty candidates")
 	}
-	return parseSuggestionJSON(parsed.Candidates[0].Content.Parts[0].Text, email)
+	return parsed.Candidates[0].Content.Parts[0].Text, nil
+}
+
+func (g *GeminiExtractor) Extract(ctx context.Context, email EmailInput) (Suggestion, error) {
+	raw, err := g.callText(ctx, buildPrompt(email))
+	if err != nil {
+		return Suggestion{}, err
+	}
+	return parseSuggestionJSON(raw, email)
+}
+
+func (g *GeminiExtractor) ExtractBulk(ctx context.Context, rawText string) ([]BulkTaskDraft, error) {
+	raw, err := g.callText(ctx, buildBulkPrompt(rawText))
+	if err != nil {
+		return nil, err
+	}
+	return parseBulkJSON(raw)
 }
 
 type OpenAICompatExtractor struct {
@@ -250,23 +338,23 @@ type OpenAICompatExtractor struct {
 	Client  *http.Client
 }
 
-func (o *OpenAICompatExtractor) Extract(ctx context.Context, email EmailInput) (Suggestion, error) {
+func (o *OpenAICompatExtractor) callText(ctx context.Context, sysPrompt, userPrompt string) (string, error) {
 	url := fmt.Sprintf("%s/chat/completions", o.BaseURL)
 	body := map[string]any{
 		"model": o.Model,
 		"messages": []map[string]string{
-			{"role": "system", "content": "Extract structured task JSON from emails. Return raw JSON only."},
-			{"role": "user", "content": buildPrompt(email)},
+			{"role": "system", "content": sysPrompt},
+			{"role": "user", "content": userPrompt},
 		},
 		"temperature": 0.1,
 	}
 	payload, err := json.Marshal(body)
 	if err != nil {
-		return Suggestion{}, err
+		return "", err
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return Suggestion{}, err
+		return "", err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if o.APIKey != "" {
@@ -275,16 +363,16 @@ func (o *OpenAICompatExtractor) Extract(ctx context.Context, email EmailInput) (
 
 	resp, err := o.Client.Do(req)
 	if err != nil {
-		return Suggestion{}, err
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	respBytes, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
-		return Suggestion{}, err
+		return "", err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return Suggestion{}, fmt.Errorf("openai_compat status %d: %s", resp.StatusCode, string(respBytes))
+		return "", fmt.Errorf("openai_compat status %d: %s", resp.StatusCode, string(respBytes))
 	}
 
 	var parsed struct {
@@ -295,21 +383,36 @@ func (o *OpenAICompatExtractor) Extract(ctx context.Context, email EmailInput) (
 		} `json:"choices"`
 	}
 	if err := json.Unmarshal(respBytes, &parsed); err != nil {
-		return Suggestion{}, err
+		return "", err
 	}
 	if len(parsed.Choices) == 0 {
-		return Suggestion{}, fmt.Errorf("openai_compat returned empty choices")
+		return "", fmt.Errorf("openai_compat returned empty choices")
 	}
-	return parseSuggestionJSON(parsed.Choices[0].Message.Content, email)
+	return parsed.Choices[0].Message.Content, nil
+}
+
+func (o *OpenAICompatExtractor) Extract(ctx context.Context, email EmailInput) (Suggestion, error) {
+	raw, err := o.callText(ctx, "Extract structured task JSON from emails. Return raw JSON only.", buildPrompt(email))
+	if err != nil {
+		return Suggestion{}, err
+	}
+	return parseSuggestionJSON(raw, email)
+}
+
+func (o *OpenAICompatExtractor) ExtractBulk(ctx context.Context, rawText string) ([]BulkTaskDraft, error) {
+	raw, err := o.callText(ctx, "Extract structured task JSON array from pasted text. Return raw JSON only.", buildBulkPrompt(rawText))
+	if err != nil {
+		return nil, err
+	}
+	return parseBulkJSON(raw)
 }
 
 type HeuristicExtractor struct{}
 
-func (h *HeuristicExtractor) Extract(_ context.Context, email EmailInput) (Suggestion, error) {
-	lower := strings.ToLower(email.Subject + " " + email.Snippet)
+func inferCategoryAndImportance(raw string) (string, int) {
+	lower := strings.ToLower(raw)
 	importance := 1
 	category := "personal"
-	days := 2
 
 	if strings.Contains(lower, "urgent") ||
 		strings.Contains(lower, "asap") ||
@@ -337,6 +440,13 @@ func (h *HeuristicExtractor) Extract(_ context.Context, email EmailInput) (Sugge
 		strings.Contains(lower, "homework") {
 		category = "study"
 	}
+	return category, importance
+}
+
+func (h *HeuristicExtractor) Extract(_ context.Context, email EmailInput) (Suggestion, error) {
+	lower := strings.ToLower(email.Subject + " " + email.Snippet)
+	category, importance := inferCategoryAndImportance(lower)
+	days := 2
 
 	if strings.Contains(lower, "tomorrow") || strings.Contains(lower, "24 hours") {
 		days = 1
@@ -359,4 +469,39 @@ func (h *HeuristicExtractor) Extract(_ context.Context, email EmailInput) (Sugge
 		Importance:   importance,
 		DaysUntilDue: &days,
 	}, nil
+}
+
+func (h *HeuristicExtractor) ExtractBulk(_ context.Context, rawText string) ([]BulkTaskDraft, error) {
+	lines := strings.Split(strings.ReplaceAll(rawText, "\r\n", "\n"), "\n")
+	drafts := make([]BulkTaskDraft, 0, len(lines))
+	for _, line := range lines {
+		clean := strings.TrimSpace(line)
+		for _, prefix := range []string{"- [ ] ", "- [x] ", "- ", "* ", "• "} {
+			clean = strings.TrimPrefix(clean, prefix)
+		}
+		clean = strings.TrimSpace(clean)
+		// Strip leading numbered bullets like "1. " or "2) "
+		if dot := strings.IndexAny(clean, ".)"); dot > 0 && dot <= 3 {
+			allDigits := true
+			for _, r := range clean[:dot] {
+				if r < '0' || r > '9' {
+					allDigits = false
+					break
+				}
+			}
+			if allDigits && dot+1 < len(clean) && clean[dot+1] == ' ' {
+				clean = strings.TrimSpace(clean[dot+2:])
+			}
+		}
+		if clean == "" {
+			continue
+		}
+		category, importance := inferCategoryAndImportance(clean)
+		drafts = append(drafts, BulkTaskDraft{
+			Title:      clean,
+			CategoryID: category,
+			Importance: importance,
+		})
+	}
+	return drafts, nil
 }

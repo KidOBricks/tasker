@@ -5,9 +5,10 @@ import '../../../domain/models/category_item.dart';
 import '../../../domain/models/recurrence_rule.dart';
 import '../../../domain/models/task_item.dart';
 import '../../../state/app_state.dart';
+import '../../../state/integration_state.dart';
 import '../../theme/app_theme.dart';
-import '../../widgets/celebration_confetti.dart';
 import 'widgets/add_edit_task_dialog.dart';
+import 'widgets/bulk_add_tasks_dialog.dart';
 import 'widgets/task_item_tile.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -49,6 +50,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           DateTime? dueDate,
           List<String> attachmentPaths = const [],
           RecurrenceRule? recurrenceRule,
+          List<SubtaskItem> subtasks = const [],
         }) {
           if (task == null) {
             ref.read(tasksProvider.notifier).addTask(
@@ -59,6 +61,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                   dueDate: dueDate,
                   attachmentPaths: attachmentPaths,
                   recurrenceRule: recurrenceRule,
+                  subtasks: subtasks,
                 );
           } else {
             ref.read(tasksProvider.notifier).updateTask(
@@ -70,6 +73,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     dueDate: dueDate,
                     clearDueDate: dueDate == null,
                     attachmentPaths: attachmentPaths,
+                    subtasks: subtasks,
                   ),
                 );
           }
@@ -94,6 +98,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
         ),
       );
     }
+  }
+
+  void _openBulkAddDialog() {
+    final categories = ref.read(categoriesProvider);
+    final profile = ref.read(profileProvider);
+    final calSvc = ref.read(calendarIntegrationServiceProvider);
+    showDialog(
+      context: context,
+      builder: (_) => BulkAddTasksDialog(
+        categories: categories,
+        numImportanceLevels: profile.numImportanceLevels,
+        onParseWithAi: (raw) => calSvc.parseBulkTasks(raw),
+        onSaveBulk: (items, sharedDueDate) => ref
+            .read(tasksProvider.notifier)
+            .addBulkTasks(items: items, sharedDueDate: sharedDueDate),
+      ),
+    );
   }
 
   void _showHistoryDialog() {
@@ -306,9 +327,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     final isWide = MediaQuery.of(context).size.width >= 840;
     final pagePad = isWide ? 24.0 : 16.0;
 
-    return CelebrationConfettiOverlay(
-      child: Scaffold(
-        body: Column(
+    return Scaffold(
+      body: Column(
           children: [
             // Page header + category bar
             Container(
@@ -331,6 +351,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         ),
                       ),
                       const Spacer(),
+                      OutlinedButton.icon(
+                        onPressed: _openBulkAddDialog,
+                        icon: const Icon(Icons.playlist_add, size: 16, color: AppColors.textSecondary),
+                        label: const Text('Bulk add', style: TextStyle(fontSize: 13)),
+                      ),
+                      const SizedBox(width: 8),
                       OutlinedButton.icon(
                         onPressed: _showHistoryDialog,
                         icon: const Icon(Icons.history, size: 16, color: AppColors.textSecondary),
@@ -528,7 +554,6 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
           ),
         ),
-      ),
     );
   }
 
@@ -600,6 +625,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                         onTap: () => _openAddEditDialog(task: task),
                         onToggleComplete: () => ref.read(tasksProvider.notifier).markCompleted(task.id),
                         onToggleInProgress: () => _toggleInProgressWithGuard(task.id),
+                        onToggleSubtask: (subId) => ref.read(tasksProvider.notifier).toggleSubtask(task.id, subId),
                         onMarkIgnored: () => ref.read(tasksProvider.notifier).markIgnored(task.id),
                         onDelete: () => ref.read(tasksProvider.notifier).deleteTask(task.id),
                       );

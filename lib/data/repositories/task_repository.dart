@@ -143,6 +143,9 @@ class TaskRepository {
               recurrenceRuleId: Value(normalized.recurrenceRuleId),
               calendarEventId: Value(normalized.calendarEventId),
               emailRefJson: Value(normalized.emailRef != null ? json.encode(normalized.emailRef) : null),
+              subtasksJson: Value(json.encode(normalized.subtasks.map((s) => s.toMap()).toList())),
+              givenById: Value(normalized.givenById),
+              givenByName: Value(normalized.givenByName),
               updatedAt: now,
               deletedAt: const Value(null),
             ),
@@ -487,6 +490,16 @@ class TaskRepository {
       } catch (_) {}
     }
 
+    List<SubtaskItem> subtasks = const [];
+    if (row.subtasksJson.isNotEmpty) {
+      try {
+        subtasks = (json.decode(row.subtasksJson) as List)
+            .whereType<Map>()
+            .map((m) => SubtaskItem.fromMap(Map<String, dynamic>.from(m)))
+            .toList();
+      } catch (_) {}
+    }
+
     return TaskItem(
       id: row.id,
       userId: row.userId,
@@ -506,6 +519,9 @@ class TaskRepository {
       recurrenceRuleId: row.recurrenceRuleId,
       calendarEventId: row.calendarEventId,
       emailRef: emailRef,
+      subtasks: subtasks,
+      givenById: row.givenById,
+      givenByName: row.givenByName,
     );
   }
 

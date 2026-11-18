@@ -139,7 +139,7 @@ class CelebrationConfettiOverlayState extends State<CelebrationConfettiOverlay>
           Positioned.fill(
             child: IgnorePointer(
               child: CustomPaint(
-                painter: _ConfettiPainter(particles: _particles),
+                painter: _ConfettiPainter(particles: _particles, repaint: _animController),
               ),
             ),
           ),
@@ -151,7 +151,7 @@ class CelebrationConfettiOverlayState extends State<CelebrationConfettiOverlay>
 class _ConfettiPainter extends CustomPainter {
   final List<ConfettiParticle> particles;
 
-  _ConfettiPainter({required this.particles});
+  _ConfettiPainter({required this.particles, super.repaint});
 
   @override
   void paint(Canvas canvas, Size size) {

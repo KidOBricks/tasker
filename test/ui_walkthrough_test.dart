@@ -157,8 +157,9 @@ void main() {
     expect(find.text('PocketBase Cloud Sync'), findsOneWidget);
     expect(find.text('Priority & Escalation Windows'), findsWidgets);
     expect(find.text('Edit Auto-Scheduled Tasks'), findsWidgets);
-    await tester.drag(find.byType(ListView), const Offset(0, -600));
+    await tester.drag(find.byType(ListView), const Offset(0, -1000));
     await tester.pumpAndSettle();
+    expect(find.text('Trusted Taskgivers'), findsWidgets);
     expect(find.text('Vacation Mode'), findsWidgets);
   });
 }

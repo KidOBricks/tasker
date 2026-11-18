@@ -72,3 +72,44 @@ func TestOpenAICompatExtractorFallsBackOnServerError(t *testing.T) {
 		t.Fatalf("expected 1 day until due, got %+v", s.DaysUntilDue)
 	}
 }
+
+func TestBulkExtractGeminiAndHeuristic(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		resp := map[string]any{
+			"candidates": []map[string]any{
+				{
+					"content": map[string]any{
+						"parts": []map[string]string{
+							{"text": `[{"title":"Submit lab report","description":"","categoryId":"study","importance":3},{"title":"Buy coffee beans","description":"","categoryId":"personal","importance":1}]`},
+						},
+					},
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	ext := NewExtractorFromConfig(Config{
+		Provider: "gemini",
+		APIKey:   "test-key",
+		BaseURL:  srv.URL,
+	}, srv.Client())
+
+	drafts, err := ext.ExtractBulk(context.Background(), "submit lab report and buy coffee")
+	if err != nil {
+		t.Fatalf("ExtractBulk failed: %v", err)
+	}
+	if len(drafts) != 2 || drafts[0].CategoryID != "study" || drafts[1].Title != "Buy coffee beans" {
+		t.Fatalf("unexpected bulk drafts: %+v", drafts)
+	}
+
+	heur := &HeuristicExtractor{}
+	hDrafts, err := heur.ExtractBulk(context.Background(), "- [ ] Urgent invoice check\n2. Read exam notes\n")
+	if err != nil {
+		t.Fatalf("Heuristic ExtractBulk failed: %v", err)
+	}
+	if len(hDrafts) != 2 || hDrafts[0].Importance != 3 || hDrafts[1].CategoryID != "study" {
+		t.Fatalf("unexpected heuristic drafts: %+v", hDrafts)
+	}
+}

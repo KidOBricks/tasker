@@ -15,6 +15,7 @@ func main() {
 	app := pocketbase.New()
 
 	schema.RegisterAuthHooks(app)
+	integrations.RegisterTaskgiverHooks(app)
 
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
 		if err := schema.EnsureSchema(app); err != nil {

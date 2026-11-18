@@ -31,7 +31,8 @@ class UserProfile {
 
   // Notification customization
   final bool notificationsEnabled;
-  final int notifyPriorHours; // e.g. 1, 2, 24
+  final int notifyPriorHours; // legacy hours fallback
+  final int notifyPriorMinutes; // primary reminder lead time in minutes
   final String notifyForTier; // 'all', 'urgent_only', 'in_progress_only'
   final bool notifyForOverdue;
   final bool reviewTasksEnabled;
@@ -67,6 +68,7 @@ class UserProfile {
     this.vacationNotificationFilter = 'urgent_only',
     this.notificationsEnabled = true,
     this.notifyPriorHours = 1,
+    this.notifyPriorMinutes = 60,
     this.notifyForTier = 'all',
     this.notifyForOverdue = true,
     this.reviewTasksEnabled = true,
@@ -132,6 +134,7 @@ class UserProfile {
     String? vacationNotificationFilter,
     bool? notificationsEnabled,
     int? notifyPriorHours,
+    int? notifyPriorMinutes,
     String? notifyForTier,
     bool? notifyForOverdue,
     bool? reviewTasksEnabled,
@@ -160,7 +163,10 @@ class UserProfile {
       vacationFrozenChoreIds: vacationFrozenChoreIds ?? this.vacationFrozenChoreIds,
       vacationNotificationFilter: vacationNotificationFilter ?? this.vacationNotificationFilter,
       notificationsEnabled: notificationsEnabled ?? this.notificationsEnabled,
-      notifyPriorHours: notifyPriorHours ?? this.notifyPriorHours,
+      notifyPriorHours: notifyPriorHours ??
+          (notifyPriorMinutes != null ? (notifyPriorMinutes / 60).round() : this.notifyPriorHours),
+      notifyPriorMinutes: notifyPriorMinutes ??
+          (notifyPriorHours != null ? notifyPriorHours * 60 : this.notifyPriorMinutes),
       notifyForTier: notifyForTier ?? this.notifyForTier,
       notifyForOverdue: notifyForOverdue ?? this.notifyForOverdue,
       reviewTasksEnabled: reviewTasksEnabled ?? this.reviewTasksEnabled,
@@ -193,6 +199,7 @@ class UserProfile {
       'vacationNotificationFilter': vacationNotificationFilter,
       'notificationsEnabled': notificationsEnabled,
       'notifyPriorHours': notifyPriorHours,
+      'notifyPriorMinutes': notifyPriorMinutes,
       'notifyForTier': notifyForTier,
       'notifyForOverdue': notifyForOverdue,
       'reviewTasksEnabled': reviewTasksEnabled,
@@ -223,6 +230,11 @@ class UserProfile {
     final l2Days = map['level2ThresholdDays'] is int ? map['level2ThresholdDays'] as int : 7;
     final l3Days = map['level3ThresholdDays'] is int ? map['level3ThresholdDays'] as int : 1;
 
+    final priorHours = map['notifyPriorHours'] is num ? (map['notifyPriorHours'] as num).toInt() : 1;
+    final priorMins = map['notifyPriorMinutes'] is num
+        ? (map['notifyPriorMinutes'] as num).toInt()
+        : priorHours * 60;
+
     return UserProfile(
       uid: map['uid'] ?? 'default_user',
       email: map['email'] ?? 'user@antigravity.dev',
@@ -244,7 +256,8 @@ class UserProfile {
       vacationFrozenChoreIds: map['vacationFrozenChoreIds'] is List ? List<String>.from(map['vacationFrozenChoreIds']) : const [],
       vacationNotificationFilter: map['vacationNotificationFilter'] ?? 'urgent_only',
       notificationsEnabled: map['notificationsEnabled'] != false,
-      notifyPriorHours: map['notifyPriorHours'] is int ? map['notifyPriorHours'] : 1,
+      notifyPriorHours: priorHours,
+      notifyPriorMinutes: priorMins,
       notifyForTier: map['notifyForTier'] ?? 'all',
       notifyForOverdue: map['notifyForOverdue'] != false,
       reviewTasksEnabled: map['reviewTasksEnabled'] != false,

@@ -1,7 +1,9 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import '../../../data/services/calendar_integration_service.dart';
 import '../../../data/services/database_service.dart';
 import '../../../state/app_state.dart';
 import '../../../state/auth_state.dart';
@@ -162,6 +164,113 @@ class SettingsScreen extends ConsumerWidget {
         );
       }
     }
+  }
+
+  Future<void> _showGoogleCalendarsDialog(BuildContext context, WidgetRef ref) async {
+    final calSvc = ref.read(calendarIntegrationServiceProvider);
+    List<GoogleCalendarInfo> calendars;
+    try {
+      calendars = await calSvc.fetchGoogleCalendars();
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not load Google calendars: $e')),
+        );
+      }
+      return;
+    }
+    if (!context.mounted) return;
+
+    final selected = calendars.where((c) => c.selected).map((c) => c.id).toSet();
+    if (selected.isEmpty && calendars.isNotEmpty) {
+      final primary = calendars.firstWhere((c) => c.primary, orElse: () => calendars.first);
+      selected.add(primary.id);
+    }
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Select Google Calendars'),
+          content: SizedBox(
+            width: 420,
+            child: calendars.isEmpty
+                ? const Text('No calendars found on this Google account.')
+                : ListView.builder(
+                    shrinkWrap: true,
+                    itemCount: calendars.length,
+                    itemBuilder: (_, idx) {
+                      final cal = calendars[idx];
+                      return CheckboxListTile(
+                        value: selected.contains(cal.id),
+                        title: Text(cal.summary.isNotEmpty ? cal.summary : cal.id, style: const TextStyle(fontSize: 13)),
+                        subtitle: cal.primary ? const Text('Primary calendar', style: TextStyle(fontSize: 11, color: AppColors.primary)) : null,
+                        onChanged: (checked) {
+                          setDialogState(() {
+                            if (checked == true) {
+                              selected.add(cal.id);
+                            } else if (selected.length > 1) {
+                              selected.remove(cal.id);
+                            }
+                          });
+                        },
+                      );
+                    },
+                  ),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: calendars.isEmpty
+                  ? null
+                  : () async {
+                      Navigator.of(ctx).pop();
+                      await calSvc.saveGoogleCalendars(selected.toList());
+                      await ref.read(connectedAccountsProvider.notifier).syncNow();
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Updated calendars & synced events')),
+                        );
+                      }
+                    },
+              child: const Text('Save & sync'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showCustomLeadTimeDialog(BuildContext context, WidgetRef ref, int currentMinutes) async {
+    final controller = TextEditingController(text: '$currentMinutes');
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Custom reminder lead time'),
+        content: TextField(
+          controller: controller,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Minutes before due time',
+            hintText: 'e.g. 45',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () {
+              final parsed = int.tryParse(controller.text.trim());
+              if (parsed != null && parsed >= 0 && parsed <= 20160) {
+                ref.read(profileProvider.notifier).updateSettings(notifyPriorMinutes: parsed);
+                Navigator.of(ctx).pop();
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _pickReviewTime(BuildContext context, WidgetRef ref, String currentTime) async {
@@ -390,6 +499,13 @@ class SettingsScreen extends ConsumerWidget {
                               ],
                             ),
                           ),
+                          if (isConnected) ...[
+                            TextButton(
+                              onPressed: () => _showGoogleCalendarsDialog(context, ref),
+                              child: const Text('Calendars'),
+                            ),
+                            const SizedBox(width: 4),
+                          ],
                           OutlinedButton(
                             style: isConnected
                                 ? OutlinedButton.styleFrom(foregroundColor: AppColors.overdue)
@@ -736,19 +852,68 @@ class SettingsScreen extends ConsumerWidget {
                         ),
                       ),
                       DropdownButton<int>(
-                        value: profile.notifyPriorHours,
+                        value: profile.notifyPriorMinutes,
                         dropdownColor: AppColors.surface,
-                        items: const [
-                          DropdownMenuItem(value: 0, child: Text('At due time')),
-                          DropdownMenuItem(value: 1, child: Text('1 hour before')),
-                          DropdownMenuItem(value: 2, child: Text('2 hours before')),
-                          DropdownMenuItem(value: 24, child: Text('1 day before')),
+                        items: [
+                          const DropdownMenuItem(value: 0, child: Text('At due time')),
+                          const DropdownMenuItem(value: 15, child: Text('15 min before')),
+                          const DropdownMenuItem(value: 30, child: Text('30 min before')),
+                          const DropdownMenuItem(value: 60, child: Text('1 hour before')),
+                          const DropdownMenuItem(value: 120, child: Text('2 hours before')),
+                          const DropdownMenuItem(value: 1440, child: Text('1 day before')),
+                          if (!{0, 15, 30, 60, 120, 1440}.contains(profile.notifyPriorMinutes))
+                            DropdownMenuItem(
+                              value: profile.notifyPriorMinutes,
+                              child: Text('${profile.notifyPriorMinutes} min before'),
+                            ),
+                          const DropdownMenuItem(value: -1, child: Text('Custom...')),
                         ],
                         onChanged: (val) {
-                          if (val != null) {
-                            ref.read(profileProvider.notifier).updateSettings(notifyPriorHours: val);
+                          if (val == -1) {
+                            _showCustomLeadTimeDialog(context, ref, profile.notifyPriorMinutes);
+                          } else if (val != null) {
+                            ref.read(profileProvider.notifier).updateSettings(notifyPriorMinutes: val);
                           }
                         },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  SwitchListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Overdue reminders', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
+                    subtitle: const Text('Alert once per day for past-due tasks', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                    value: profile.notifyForOverdue,
+                    activeThumbColor: AppColors.primary,
+                    onChanged: (val) => ref.read(profileProvider.notifier).updateSettings(notifyForOverdue: val),
+                  ),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: () async {
+                          final granted = await ref.read(notificationServiceProvider).requestPermissions();
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  granted
+                                      ? 'Browser/OS notifications enabled'
+                                      : 'Permission not granted — in-app banners will still alert you',
+                                ),
+                              ),
+                            );
+                          }
+                        },
+                        icon: const Icon(Icons.notifications_active_outlined, size: 16),
+                        label: const Text('Enable alerts'),
+                      ),
+                      TextButton.icon(
+                        onPressed: () => ref.read(notificationServiceProvider).sendTestNotification(),
+                        icon: const Icon(Icons.send_outlined, size: 16),
+                        label: const Text('Test alert'),
                       ),
                     ],
                   ),
@@ -816,6 +981,10 @@ class SettingsScreen extends ConsumerWidget {
               ),
             ),
           ),
+          const SizedBox(height: 24),
+
+          // 4b. Trusted Taskgivers
+          const _TrustedTaskgiversSection(),
           const SizedBox(height: 24),
 
           // 5. Vacation Mode
@@ -917,6 +1086,223 @@ class SettingsScreen extends ConsumerWidget {
           const SizedBox(height: 32),
         ],
       ),
+    );
+  }
+}
+
+class _TrustedTaskgiversSection extends ConsumerStatefulWidget {
+  const _TrustedTaskgiversSection();
+
+  @override
+  ConsumerState<_TrustedTaskgiversSection> createState() => _TrustedTaskgiversSectionState();
+}
+
+class _TrustedTaskgiversSectionState extends ConsumerState<_TrustedTaskgiversSection> {
+  List<TrustedTaskgiver> _items = const [];
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  Future<void> _load() async {
+    final user = ref.read(authProvider);
+    if (user == null) return;
+    setState(() => _loading = true);
+    try {
+      final list = await ref.read(calendarIntegrationServiceProvider).listTaskgivers(user.id);
+      if (mounted) setState(() => _items = list);
+    } catch (_) {
+      // Offline or unconfigured server: keep current list
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _openAddEditDialog({TrustedTaskgiver? existing}) async {
+    final nameCtrl = TextEditingController(text: existing?.name ?? '');
+    final emailCtrl = TextEditingController(text: existing?.email ?? '');
+    final formKey = GlobalKey<FormState>();
+
+    await showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(existing == null ? 'Add Trusted Taskgiver' : 'Edit Trusted Taskgiver'),
+        content: Form(
+          key: formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: nameCtrl,
+                decoration: const InputDecoration(
+                  labelText: 'Name',
+                  hintText: 'e.g. Manager, Partner',
+                  border: OutlineInputBorder(),
+                ),
+                validator: (v) => (v == null || v.trim().isEmpty) ? 'Enter a name' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                decoration: const InputDecoration(
+                  labelText: 'Email (optional)',
+                  hintText: 'Notify when you finish their task',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              if (!formKey.currentState!.validate()) return;
+              final svc = ref.read(calendarIntegrationServiceProvider);
+              Navigator.of(ctx).pop();
+              try {
+                if (existing == null) {
+                  final created = await svc.createTaskgiver(name: nameCtrl.text, email: emailCtrl.text);
+                  await Clipboard.setData(ClipboardData(text: created.shareUrl));
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('Created link for ${created.name} (copied to clipboard)')),
+                    );
+                  }
+                } else {
+                  await svc.updateTaskgiver(existing.id, name: nameCtrl.text, email: emailCtrl.text);
+                }
+                await _load();
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Failed: $e')));
+                }
+              }
+            },
+            child: Text(existing == null ? 'Generate link' : 'Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Trusted Taskgivers',
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: AppColors.textPrimary),
+            ),
+            OutlinedButton.icon(
+              onPressed: () => _openAddEditDialog(),
+              icon: const Icon(Icons.link, size: 16),
+              label: const Text('New link'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: _loading && _items.isEmpty
+                ? const Center(child: Padding(padding: EdgeInsets.all(8), child: CircularProgressIndicator(strokeWidth: 2)))
+                : _items.isEmpty
+                    ? const Text(
+                        'Create a unique link for someone you trust so they can add tasks to your list and check task status.',
+                        style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                      )
+                    : Column(
+                        children: _items.map((item) {
+                          return Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Row(
+                                        children: [
+                                          Text(item.name, style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
+                                          const SizedBox(width: 8),
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color: (item.isActive ? AppColors.inProgress : AppColors.overdue).withValues(alpha: 0.16),
+                                              borderRadius: BorderRadius.circular(6),
+                                            ),
+                                            child: Text(
+                                              item.isActive ? 'Active' : 'Revoked',
+                                              style: TextStyle(
+                                                fontSize: 10,
+                                                fontWeight: FontWeight.w600,
+                                                color: item.isActive ? AppColors.inProgress : AppColors.overdue,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      if (item.email.isNotEmpty)
+                                        Text(item.email, style: const TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                                      Text(
+                                        item.shareUrl,
+                                        style: AppTheme.mono(11, color: AppColors.textSecondary),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: 'Copy link',
+                                  icon: const Icon(Icons.copy, size: 18),
+                                  onPressed: () async {
+                                    await Clipboard.setData(ClipboardData(text: item.shareUrl));
+                                    if (context.mounted) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        const SnackBar(content: Text('Share link copied')),
+                                      );
+                                    }
+                                  },
+                                ),
+                                IconButton(
+                                  tooltip: 'Edit',
+                                  icon: const Icon(Icons.edit_outlined, size: 18),
+                                  onPressed: () => _openAddEditDialog(existing: item),
+                                ),
+                                Switch(
+                                  value: item.isActive,
+                                  activeThumbColor: AppColors.primary,
+                                  onChanged: (val) async {
+                                    await ref.read(calendarIntegrationServiceProvider).updateTaskgiver(item.id, isActive: val);
+                                    await _load();
+                                  },
+                                ),
+                                IconButton(
+                                  tooltip: 'Delete',
+                                  icon: const Icon(Icons.delete_outline, size: 18, color: AppColors.overdue),
+                                  onPressed: () async {
+                                    await ref.read(calendarIntegrationServiceProvider).deleteTaskgiver(item.id);
+                                    await _load();
+                                  },
+                                ),
+                              ],
+                            ),
+                          );
+                        }).toList(),
+                      ),
+          ),
+        ),
+      ],
     );
   }
 }
