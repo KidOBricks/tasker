@@ -55,3 +55,4 @@ app.*.map.json
 credentials*.txt
 backend/pb_data/
 backend/tasker-server
+/dist/

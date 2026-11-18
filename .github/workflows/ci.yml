@@ -158,16 +158,22 @@ jobs:
           OCI_SSH_KEY: ${{ secrets.OCI_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "$OCI_SSH_KEY" > ~/.ssh/oci_key
+          printf '%s\n' "$OCI_SSH_KEY" | tr -d '\r' > ~/.ssh/oci_key
           chmod 600 ~/.ssh/oci_key
           ssh-keyscan -H "$OCI_HOST" >> ~/.ssh/known_hosts
           chmod +x dist/bin/tasker-server-linux-arm64
           scp -i ~/.ssh/oci_key dist/bin/tasker-server-linux-arm64 "$OCI_USER@$OCI_HOST:/tmp/tasker-server.new"
           rsync -avz --delete -e "ssh -i ~/.ssh/oci_key" dist/web/ "$OCI_USER@$OCI_HOST:/tmp/tasker-web/"
+          scp -i ~/.ssh/oci_key deploy/Caddyfile.template "$OCI_USER@$OCI_HOST:/tmp/Caddyfile.template"
           ssh -i ~/.ssh/oci_key "$OCI_USER@$OCI_HOST" "
             sudo mv /tmp/tasker-server.new /opt/tasker/tasker-server &&
             sudo chmod +x /opt/tasker/tasker-server &&
             sudo rsync -a --delete /tmp/tasker-web/ /opt/tasker/web/ &&
             sudo chown -R tasker:tasker /opt/tasker &&
+            if [ -f /opt/tasker/.env ]; then
+              TASKER_DOMAIN=\$(grep -E '^TASKER_DOMAIN=' /opt/tasker/.env | cut -d= -f2-)
+              [ -n \"\$TASKER_DOMAIN\" ] && sed \"s|{\\\\\$TASKER_DOMAIN}|\${TASKER_DOMAIN}|g\" /tmp/Caddyfile.template | sudo tee /etc/caddy/Caddyfile >/dev/null && sudo systemctl reload caddy || true
+            fi &&
+            rm -f /tmp/Caddyfile.template &&
             sudo systemctl restart tasker
           "
