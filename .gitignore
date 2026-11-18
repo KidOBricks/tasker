@@ -46,3 +46,12 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Local secrets & runtime data
+.env
+.env.*
+!.env.example
+*.local.txt
+credentials*.txt
+backend/pb_data/
+backend/tasker-server
