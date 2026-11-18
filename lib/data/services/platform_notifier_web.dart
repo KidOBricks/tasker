@@ -23,6 +23,10 @@ Future<void> showPlatformNotification({
   } catch (_) {}
 }
 
+Future<bool> isBackgroundUnrestricted() async => true;
+
+Future<void> requestPlatformBackgroundExemption() async {}
+
 Future<void> syncPlatformNotificationSchedule({
   required List<Map<String, dynamic>> alarms,
   required List<String> knownTaskIds,

@@ -57,6 +57,10 @@ class NotificationService {
     return requestPlatformNotificationPermission();
   }
 
+  Future<bool> checkBackgroundUnrestricted() => isBackgroundUnrestricted();
+
+  Future<void> requestBackgroundExemption() => requestPlatformBackgroundExemption();
+
   static bool _shouldNotifyTask(TaskItem task, UserProfile profile) {
     if (task.isCompleted || task.isIgnored) return false;
     if (profile.isChoreFrozenInVacation(task.recurrenceRuleId)) return false;

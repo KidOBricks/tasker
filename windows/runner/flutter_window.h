@@ -15,6 +15,7 @@ class FlutterWindow : public Win32Window {
   // Creates a new FlutterWindow hosting a Flutter view running |project|.
   explicit FlutterWindow(const flutter::DartProject& project);
   virtual ~FlutterWindow();
+  void SetStartMinimized(bool start_minimized) { start_minimized_ = start_minimized; }
 
  protected:
   // Win32Window:
@@ -38,6 +39,7 @@ class FlutterWindow : public Win32Window {
   NOTIFYICONDATAW tray_icon_{};
   bool tray_added_ = false;
   bool allow_quit_ = false;
+  bool start_minimized_ = false;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

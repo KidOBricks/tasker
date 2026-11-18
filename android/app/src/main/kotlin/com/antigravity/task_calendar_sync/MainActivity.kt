@@ -1,8 +1,15 @@
 package com.antigravity.task_calendar_sync
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.app.AlarmManager
+import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -55,9 +62,48 @@ class MainActivity : FlutterActivity() {
                         TaskerNotificationHelper.clearSchedule(this)
                         result.success(null)
                     }
+                    "isBackgroundUnrestricted" -> {
+                        result.success(checkBackgroundUnrestricted())
+                    }
+                    "requestBackgroundExemption" -> {
+                        requestBackgroundExemption()
+                        result.success(null)
+                    }
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    private fun checkBackgroundUnrestricted(): Boolean {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val batteryOk = pm.isIgnoringBatteryOptimizations(packageName)
+        val exactOk = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            (getSystemService(Context.ALARM_SERVICE) as AlarmManager).canScheduleExactAlarms()
+        } else {
+            true
+        }
+        return batteryOk && exactOk
+    }
+
+    @SuppressLint("BatteryLife")
+    private fun requestBackgroundExemption() {
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                data = Uri.parse("package:$packageName")
+            }
+            startActivity(intent)
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val alarmMgr = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+            if (!alarmMgr.canScheduleExactAlarms()) {
+                val intent = Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                    data = Uri.parse("package:$packageName")
+                }
+                startActivity(intent)
+            }
+        }
     }
 
     override fun onRequestPermissionsResult(

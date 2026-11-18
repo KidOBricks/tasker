@@ -915,6 +915,12 @@ class SettingsScreen extends ConsumerWidget {
                         icon: const Icon(Icons.send_outlined, size: 16),
                         label: const Text('Test alert'),
                       ),
+                      if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android)
+                        OutlinedButton.icon(
+                          onPressed: () => ref.read(notificationServiceProvider).requestBackgroundExemption(),
+                          icon: const Icon(Icons.battery_saver_outlined, size: 16),
+                          label: const Text('Allow background'),
+                        ),
                     ],
                   ),
                   const SizedBox(height: 12),

@@ -10,6 +10,34 @@ namespace {
 
 constexpr wchar_t kTaskerAppUserModelId[] = L"KidOBricks.Tasker.Desktop";
 
+void DisableEnergySaverThrottling() {
+  PROCESS_POWER_THROTTLING_STATE power_throttling{};
+  power_throttling.Version = PROCESS_POWER_THROTTLING_CURRENT_VERSION;
+  power_throttling.ControlMask = PROCESS_POWER_THROTTLING_EXECUTION_SPEED;
+  power_throttling.StateMask = 0;
+  SetProcessInformation(GetCurrentProcess(), ProcessPowerThrottling,
+                        &power_throttling, sizeof(power_throttling));
+}
+
+void RegisterTaskerAutostart() {
+  wchar_t exe_path[MAX_PATH]{};
+  DWORD len = GetModuleFileNameW(nullptr, exe_path, MAX_PATH);
+  if (len == 0 || len >= MAX_PATH) return;
+
+  std::wstring cmd = std::wstring(L"\"") + exe_path + L"\" --minimized";
+  HKEY run_key = nullptr;
+  if (RegCreateKeyExW(
+          HKEY_CURRENT_USER,
+          L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, nullptr, 0,
+          KEY_WRITE, nullptr, &run_key, nullptr) == ERROR_SUCCESS) {
+    RegSetValueExW(
+        run_key, L"Tasker", 0, REG_SZ,
+        reinterpret_cast<const BYTE*>(cmd.c_str()),
+        static_cast<DWORD>((cmd.size() + 1) * sizeof(wchar_t)));
+    RegCloseKey(run_key);
+  }
+}
+
 void RegisterTaskerAppUserModelId() {
   SetCurrentProcessExplicitAppUserModelID(kTaskerAppUserModelId);
 
@@ -54,16 +82,25 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Initialize COM, so that it is available for use in the library and/or
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  DisableEnergySaverThrottling();
   RegisterTaskerAppUserModelId();
+  RegisterTaskerAutostart();
 
   flutter::DartProject project(L"data");
 
   std::vector<std::string> command_line_arguments =
       GetCommandLineArguments();
+  bool start_minimized = false;
+  for (const auto& arg : command_line_arguments) {
+    if (arg == "--minimized") {
+      start_minimized = true;
+    }
+  }
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
   FlutterWindow window(project);
+  window.SetStartMinimized(start_minimized);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
   if (!window.Create(L"Tasker", origin, size)) {
