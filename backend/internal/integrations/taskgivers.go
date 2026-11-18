@@ -167,11 +167,13 @@ func (s *Service) handlePublicCreateTask(e *core.RequestEvent) error {
 	}
 
 	var body struct {
-		Title       string `json:"title" form:"title"`
-		Description string `json:"description" form:"description"`
-		DueDate     string `json:"dueDate" form:"dueDate"`
-		Importance  int    `json:"importance" form:"importance"`
-		Website     string `json:"website" form:"website"` // honeypot
+		Title           string `json:"title" form:"title"`
+		Description     string `json:"description" form:"description"`
+		DueDate         string `json:"dueDate" form:"dueDate"`
+		DueTime         string `json:"dueTime" form:"dueTime"`
+		TzOffsetMinutes *int   `json:"tzOffsetMinutes" form:"tzOffsetMinutes"`
+		Importance      int    `json:"importance" form:"importance"`
+		Website         string `json:"website" form:"website"` // honeypot
 	}
 	if err := e.BindBody(&body); err != nil {
 		return e.BadRequestError("invalid submission", err)
@@ -193,18 +195,7 @@ func (s *Service) handlePublicCreateTask(e *core.RequestEvent) error {
 		imp = 2
 	}
 
-	var dueISO string
-	if rawDue := strings.TrimSpace(body.DueDate); rawDue != "" {
-		for _, layout := range []string{time.RFC3339, "2006-01-02T15:04", "2006-01-02"} {
-			if t, err := time.Parse(layout, rawDue); err == nil {
-				if layout == "2006-01-02" {
-					t = time.Date(t.Year(), t.Month(), t.Day(), 18, 0, 0, 0, time.UTC)
-				}
-				dueISO = t.UTC().Format(time.RFC3339)
-				break
-			}
-		}
-	}
+	dueISO := parseTaskgiverDueDate(body.DueDate, body.DueTime, body.TzOffsetMinutes)
 
 	col, err := s.App.FindCollectionByNameOrId("tasks")
 	if err != nil {
@@ -248,6 +239,38 @@ func (s *Service) handlePublicCreateTask(e *core.RequestEvent) error {
 		"importance": imp,
 		"created":    nowISO,
 	})
+}
+
+func parseTaskgiverDueDate(rawDue, rawTime string, tzOffsetMinutes *int) string {
+	rawDue = strings.TrimSpace(rawDue)
+	if rawDue == "" {
+		return ""
+	}
+	if t, err := time.Parse(time.RFC3339, rawDue); err == nil {
+		return t.UTC().Format(time.RFC3339)
+	}
+	loc := time.UTC
+	if tzOffsetMinutes != nil && *tzOffsetMinutes >= -840 && *tzOffsetMinutes <= 840 {
+		// JS getTimezoneOffset returns UTC - local in minutes (e.g. -60 for UTC+1).
+		loc = time.FixedZone("client", -(*tzOffsetMinutes)*60)
+	}
+	if t, err := time.ParseInLocation("2006-01-02T15:04", rawDue, loc); err == nil {
+		return t.UTC().Format(time.RFC3339)
+	}
+	d, err := time.Parse("2006-01-02", rawDue)
+	if err != nil {
+		return ""
+	}
+	hour, min := 18, 0
+	if cleanTime := strings.TrimSpace(rawTime); cleanTime != "" {
+		for _, layout := range []string{"15:04", "15:04:05"} {
+			if pt, err := time.Parse(layout, cleanTime); err == nil {
+				hour, min = pt.Hour(), pt.Minute()
+				break
+			}
+		}
+	}
+	return time.Date(d.Year(), d.Month(), d.Day(), hour, min, 0, 0, loc).UTC().Format(time.RFC3339)
 }
 
 func renderTaskgiverErrorHTML(message string) string {
@@ -295,11 +318,17 @@ func renderTaskgiverPageHTML(token, giverName, ownerName string, tasks []*core.R
 			}
 			dueHtml := ""
 			if due := strings.TrimSpace(t.GetString("dueDate")); due != "" {
-				dueShort := due
-				if len(dueShort) >= 10 {
-					dueShort = dueShort[:10]
+				dueFallback := due
+				if parsed, err := time.Parse(time.RFC3339, due); err == nil {
+					dueFallback = parsed.UTC().Format("2006-01-02 15:04 UTC")
+				} else if len(dueFallback) >= 10 {
+					dueFallback = dueFallback[:10]
 				}
-				dueHtml = fmt.Sprintf(`<span class="meta">Due %s</span>`, html.EscapeString(dueShort))
+				dueHtml = fmt.Sprintf(
+					`<span class="meta" data-due-iso="%s">Due %s</span>`,
+					html.EscapeString(due),
+					html.EscapeString(dueFallback),
+				)
 			}
 			listItems.WriteString(fmt.Sprintf(
 				`<li class="task-row"><div><div class="task-title">%s</div>%s</div><span class="badge %s">%s</span></li>`,
@@ -358,6 +387,11 @@ func renderTaskgiverPageHTML(token, giverName, ownerName string, tasks []*core.R
     }
     h2 { margin: 0 0 1rem; font-size: 1.05rem; font-weight: 600; }
     .field { display: flex; flex-direction: column; gap: 0.35rem; margin-block-end: 1.15rem; }
+    .field-row { display: grid; grid-template-columns: 1fr; gap: 0.9rem; margin-block-end: 1.15rem; }
+    .field-row .field { margin-block-end: 0; }
+    @media (min-width: 480px) {
+      .field-row { grid-template-columns: 1fr 1fr; }
+    }
     label { font-size: 0.92rem; font-weight: 500; }
     .hint { font-size: 0.82rem; color: var(--muted); }
     input, textarea, select {
@@ -449,10 +483,19 @@ func renderTaskgiverPageHTML(token, giverName, ownerName string, tasks []*core.R
           <textarea id="description" name="description" maxlength="4000" placeholder="Links, context, or instructions..."></textarea>
         </div>
 
-        <div class="field">
-          <label for="dueDate">Due date (optional)</label>
-          <input type="date" id="dueDate" name="dueDate">
+        <div class="field-row">
+          <div class="field">
+            <label for="dueDate">Due date (optional)</label>
+            <input type="date" id="dueDate" name="dueDate" data-error="due-error">
+            <span id="due-error" class="error-msg"><span role="img" aria-label="Error">!</span> Pick a due date when setting a due time.</span>
+          </div>
+          <div class="field">
+            <label for="dueTime">Due time (optional)</label>
+            <input type="time" id="dueTime" name="dueTime" aria-describedby="due-time-hint">
+            <span id="due-time-hint" class="hint">Defaults to 6:00 PM if date is set.</span>
+          </div>
         </div>
+        <input type="hidden" id="tzOffsetMinutes" name="tzOffsetMinutes" value="">
 
         <fieldset>
           <legend>Priority</legend>
@@ -480,6 +523,22 @@ func renderTaskgiverPageHTML(token, giverName, ownerName string, tasks []*core.R
       const statusBox = document.getElementById('submit-status');
       const taskList = document.getElementById('task-list');
       const taskCount = document.getElementById('task-count');
+      const dueDateInput = document.getElementById('dueDate');
+      const dueTimeInput = document.getElementById('dueTime');
+      const tzInput = document.getElementById('tzOffsetMinutes');
+      const syncTz = () => {
+        if (tzInput) tzInput.value = String(new Date().getTimezoneOffset());
+      };
+      syncTz();
+
+      const formatDue = (iso) => {
+        const dt = new Date(iso);
+        if (Number.isNaN(dt.getTime())) return iso.slice(0, 10);
+        return dt.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+      };
+      document.querySelectorAll('[data-due-iso]').forEach((el) => {
+        el.textContent = 'Due ' + formatDue(el.dataset.dueIso);
+      });
 
       // Accessible :user-invalid + aria-invalid synchronization
       const announcer = document.createElement('div');
@@ -496,6 +555,14 @@ func renderTaskgiverPageHTML(token, giverName, ownerName string, tasks []*core.R
         else el.removeAttribute('aria-describedby');
       };
 
+      const syncDueValidity = () => {
+        if (dueTimeInput.value && !dueDateInput.value) {
+          dueDateInput.setCustomValidity('Pick a due date when setting a due time.');
+        } else {
+          dueDateInput.setCustomValidity('');
+        }
+      };
+
       const syncField = (el, shouldAnnounce = false) => {
         if (!el.matches?.('input, textarea, select')) return;
         const invalid = el.matches(':user-invalid') || !el.validity.valid && el.classList.contains('user-invalid-fallback');
@@ -509,21 +576,29 @@ func renderTaskgiverPageHTML(token, giverName, ownerName string, tasks []*core.R
 
       form.querySelectorAll('input, textarea, select').forEach((el) => el.setAttribute('aria-invalid', 'false'));
       form.addEventListener('blur', (e) => {
+        syncDueValidity();
         if (!e.target.checkValidity?.()) e.target.classList.add('user-invalid-fallback');
         syncField(e.target, true);
       }, true);
       form.addEventListener('input', (e) => {
+        syncDueValidity();
+        if (dueDateInput.validity?.valid) {
+          dueDateInput.classList.remove('user-invalid-fallback');
+          syncField(dueDateInput, false);
+        }
         if (e.target.validity?.valid) e.target.classList.remove('user-invalid-fallback');
         syncField(e.target, false);
       });
 
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
+        syncDueValidity();
         const titleInput = document.getElementById('title');
         if (!form.checkValidity()) {
-          titleInput.classList.add('user-invalid-fallback');
-          syncField(titleInput, true);
-          titleInput.focus();
+          const firstInvalid = !titleInput.validity.valid ? titleInput : dueDateInput;
+          firstInvalid.classList.add('user-invalid-fallback');
+          syncField(firstInvalid, true);
+          firstInvalid.focus();
           return;
         }
 
@@ -536,6 +611,8 @@ func renderTaskgiverPageHTML(token, giverName, ownerName string, tasks []*core.R
           title: fd.get('title') || '',
           description: fd.get('description') || '',
           dueDate: fd.get('dueDate') || '',
+          dueTime: fd.get('dueTime') || '',
+          tzOffsetMinutes: new Date().getTimezoneOffset(),
           importance: Number(fd.get('importance') || 2),
           website: fd.get('website') || ''
         };
@@ -562,7 +639,8 @@ func renderTaskgiverPageHTML(token, giverName, ownerName string, tasks []*core.R
           if (created.dueDate) {
             const meta = document.createElement('span');
             meta.className = 'meta';
-            meta.textContent = 'Due ' + created.dueDate.slice(0, 10);
+            meta.dataset.dueIso = created.dueDate;
+            meta.textContent = 'Due ' + formatDue(created.dueDate);
             left.append(meta);
           }
           const badge = document.createElement('span');
@@ -575,6 +653,7 @@ func renderTaskgiverPageHTML(token, giverName, ownerName string, tasks []*core.R
           statusBox.className = 'status-banner ok';
           statusBox.textContent = 'Task sent! ' + created.title;
           form.reset();
+          syncTz();
           form.querySelectorAll('input, textarea').forEach((el) => {
             el.classList.remove('user-invalid-fallback');
             el.setAttribute('aria-invalid', 'false');

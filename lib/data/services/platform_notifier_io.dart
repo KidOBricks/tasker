@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 const _androidChannel = MethodChannel('tasker/notifications');
@@ -37,12 +38,12 @@ $t = [System.Security.SecurityElement]::Escape($env:TASKER_TOAST_TITLE)
 $b = [System.Security.SecurityElement]::Escape($env:TASKER_TOAST_BODY)
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null
 $xml = [Windows.Data.Xml.Dom.XmlDocument, Windows.Data.Xml.Dom.XmlDocument, ContentType = WindowsRuntime]::new()
-$xml.LoadXml("<toast><visual><binding template='ToastText02'><text id='1'>$t</text><text id='2'>$b</text></binding></visual></toast>")
+$xml.LoadXml("<toast><visual><binding template='ToastGeneric'><text>$t</text><text>$b</text></binding></visual></toast>")
 $toast = [Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, ContentType = WindowsRuntime]::new($xml)
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Tasker').Show($toast)
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('KidOBricks.Tasker.Desktop').Show($toast)
 ''';
     try {
-      await Process.run(
+      final res = await Process.run(
         'powershell',
         ['-NoProfile', '-NonInteractive', '-Command', psScript],
         environment: {
@@ -50,6 +51,37 @@ $toast = [Windows.UI.Notifications.ToastNotification, Windows.UI.Notifications, 
           'TASKER_TOAST_BODY': body,
         },
       );
-    } catch (_) {}
+      if (res.exitCode != 0) {
+        debugPrint('Windows toast error (${res.exitCode}): ${res.stderr}');
+      }
+    } catch (e) {
+      debugPrint('Windows toast exception: $e');
+    }
   }
+}
+
+Future<void> syncPlatformNotificationSchedule({
+  required List<Map<String, dynamic>> alarms,
+  required List<String> knownTaskIds,
+  required bool enabled,
+  required String userId,
+  required String serverUrl,
+}) async {
+  if (!Platform.isAndroid) return;
+  try {
+    await _androidChannel.invokeMethod<void>('syncSchedule', {
+      'alarms': alarms,
+      'knownTaskIds': knownTaskIds,
+      'enabled': enabled,
+      'userId': userId,
+      'serverUrl': serverUrl,
+    });
+  } catch (_) {}
+}
+
+Future<void> clearPlatformNotificationSchedule() async {
+  if (!Platform.isAndroid) return;
+  try {
+    await _androidChannel.invokeMethod<void>('clearSchedule');
+  } catch (_) {}
 }

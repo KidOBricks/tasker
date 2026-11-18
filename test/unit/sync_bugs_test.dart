@@ -280,4 +280,89 @@ void main() {
     expect(after.isCompleted, isTrue);
     expect(after.subtasks.single.isCompleted, isTrue);
   });
+
+  test('fresh signIn preserves remote profile and categories without overwriting defaults', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    final repo = TaskRepository(db);
+    final mutatingRequests = <String>[];
+
+    final client = MockClient((req) async {
+      if (req.url.path == '/api/realtime') {
+        return http.Response('not found in test', 404);
+      }
+      if (req.url.path == '/api/collections/users/auth-with-password' && req.method == 'POST') {
+        return http.Response(
+          json.encode({
+            'token': _fakeJwt('u1'),
+            'record': {
+              'id': 'u1',
+              'email': 'u1@example.com',
+              'displayName': 'Cloud Name',
+              'role': 'user',
+            },
+          }),
+          200,
+        );
+      }
+      if (req.method == 'POST' || req.method == 'PATCH') {
+        mutatingRequests.add('${req.method} ${req.url.path}');
+        return http.Response(json.encode({'id': 'pb_mut'}), 200);
+      }
+      if (req.url.path == '/api/collections/categories/records' && req.method == 'GET') {
+        return http.Response(
+          json.encode(_pbList([
+            {
+              'id': 'pb_c1',
+              'user': 'u1',
+              'clientId': 'custom',
+              'name': 'Custom Cloud',
+              'colorValue': 0xFF3CA89C,
+              'iconName': 'work',
+              'sortOrder': 0,
+              'clientUpdatedAt': '2026-11-18T20:00:00.000Z',
+            },
+          ])),
+          200,
+        );
+      }
+      if (req.url.path == '/api/collections/user_profiles/records' && req.method == 'GET') {
+        return http.Response(
+          json.encode(_pbList([
+            {
+              'id': 'pb_p1',
+              'user': 'u1',
+              'displayName': 'Cloud Name',
+              'notifyPriorMinutes': 45,
+              'clientUpdatedAt': '2026-11-18T20:00:00.000Z',
+            },
+          ])),
+          200,
+        );
+      }
+      return http.Response(json.encode(_pbList([])), 200);
+    });
+
+    final pb = PocketBase('https://example.invalid', httpClientFactory: () => client);
+    final authService = AuthService(pb, ServerConfig(prefs));
+    final dbService = DatabaseService(pb, db, repo);
+    addTearDown(dbService.dispose);
+
+    final container = ProviderContainer(
+      overrides: [
+        repositoryProvider.overrideWithValue(repo),
+        authServiceProvider.overrideWithValue(authService),
+        databaseServiceProvider.overrideWithValue(dbService),
+      ],
+    );
+    addTearDown(container.dispose);
+
+    await container.read(authProvider.notifier).signIn('u1@example.com', 'secret');
+    expect(mutatingRequests, isEmpty);
+    expect(repo.getProfile().notifyPriorMinutes, 45);
+    expect(repo.getCategories().single.name, 'Custom Cloud');
+  });
 }

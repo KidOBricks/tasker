@@ -42,12 +42,19 @@ void main() async {
       cachedUser.id,
       email: cachedUser.email,
       displayName: cachedUser.displayName,
+      seedDefaults: false,
     );
     unawaited(() async {
       final refreshed = await authService.refreshSessionIfPossible();
       if (refreshed != null) {
         await databaseService.performCloudSync(userId: refreshed.id);
-        await databaseService.startRealtimeSync(refreshed.id);
+        if (await repository.ensureDefaultsIfMissing(
+          email: refreshed.email,
+          displayName: refreshed.displayName,
+        )) {
+          await databaseService.performCloudSync(userId: refreshed.id);
+        }
+        unawaited(databaseService.startRealtimeSync(refreshed.id));
       } else {
         await repository.loadForUser('');
       }

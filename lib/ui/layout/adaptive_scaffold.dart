@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/services/database_service.dart';
@@ -27,6 +28,8 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
   final GlobalKey<CelebrationConfettiOverlayState> _confettiKey = GlobalKey();
   Timer? _reminderTimer;
   Timer? _initialCheckTimer;
+  Timer? _scheduleSyncDebounce;
+  bool _androidPermPrompted = false;
   StreamSubscription<TaskGivenAlert>? _givenSub;
   StreamSubscription<PendingReminder>? _alertSub;
 
@@ -73,8 +76,41 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
       );
     });
 
-    _initialCheckTimer = Timer(const Duration(seconds: 5), _evaluateNow);
+    _initialCheckTimer = Timer(const Duration(seconds: 5), () {
+      _maybePromptNativePermission();
+      _evaluateNow();
+      _syncNativeSchedule();
+    });
     _reminderTimer = Timer.periodic(const Duration(seconds: 60), (_) => _evaluateNow());
+  }
+
+  void _maybePromptNativePermission() {
+    if (_androidPermPrompted || kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    if (ref.read(authProvider) == null || !ref.read(profileProvider).notificationsEnabled) return;
+    _androidPermPrompted = true;
+    unawaited(ref.read(notificationServiceProvider).requestPermissions());
+  }
+
+  void _syncNativeSchedule() {
+    _scheduleSyncDebounce?.cancel();
+    _scheduleSyncDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (!mounted) return;
+      final user = ref.read(authProvider);
+      final notif = ref.read(notificationServiceProvider);
+      if (user == null) {
+        unawaited(notif.clearBackgroundSchedule());
+        return;
+      }
+      final tasks = ref.read(tasksProvider);
+      final profile = ref.read(profileProvider);
+      final serverUrl = ref.read(databaseServiceProvider).serverUrl;
+      unawaited(notif.syncBackgroundSchedule(
+        tasks: tasks,
+        profile: profile,
+        userId: user.id,
+        serverUrl: serverUrl,
+      ));
+    });
   }
 
   void _evaluateNow() {
@@ -88,6 +124,7 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
   void dispose() {
     _initialCheckTimer?.cancel();
     _reminderTimer?.cancel();
+    _scheduleSyncDebounce?.cancel();
     _givenSub?.cancel();
     _alertSub?.cancel();
     super.dispose();
@@ -145,6 +182,17 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
   @override
   Widget build(BuildContext context) {
     final currentUser = ref.watch(authProvider);
+
+    ref.listen(authProvider, (prev, next) {
+      if (next == null) {
+        unawaited(ref.read(notificationServiceProvider).clearBackgroundSchedule());
+      } else {
+        _maybePromptNativePermission();
+        _syncNativeSchedule();
+      }
+    });
+    ref.listen(tasksProvider, (_, _) => _syncNativeSchedule());
+    ref.listen(profileProvider, (_, _) => _syncNativeSchedule());
 
     if (currentUser == null) {
       return const AuthScreen();

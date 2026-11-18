@@ -25,6 +25,7 @@ class TaskRepository {
     String email = '',
     String displayName = '',
     bool seedSampleTasksIfEmpty = false,
+    bool seedDefaults = true,
   }) async {
     _activeUserId = userId;
     if (userId.isEmpty) {
@@ -37,34 +38,52 @@ class TaskRepository {
 
     await reloadFromDb(userId);
 
-    // Seed default categories for first-time user
-    if (_categories.isEmpty) {
-      final defaults = CategoryItem.defaultCategories();
-      await saveCategories(defaults);
-    }
-
-    // Ensure local profile exists for this user
-    final existingProfile = await (_db.select(_db.localProfiles)
-          ..where((t) => t.userId.equals(userId)))
-        .getSingleOrNull();
-    if (existingProfile == null) {
-      final initialProfile = UserProfile.defaultProfile().copyWith(
-        uid: userId,
-        email: email,
-        displayName: displayName.isNotEmpty ? displayName : (email.contains('@') ? email.split('@').first : 'User'),
-      );
-      await saveProfile(initialProfile);
-    } else if (email.isNotEmpty && _profile.email != email) {
-      await saveProfile(_profile.copyWith(
-        uid: userId,
-        email: email,
-        displayName: displayName.isNotEmpty ? displayName : _profile.displayName,
-      ));
+    if (seedDefaults) {
+      await ensureDefaultsIfMissing(email: email, displayName: displayName);
     }
 
     if (seedSampleTasksIfEmpty && _tasks.isEmpty) {
       await _seedSampleData(userId);
     }
+  }
+
+  /// Seeds default categories and profile only when neither local nor cloud data exists.
+  /// Returns true if any new records were written to the local outbox.
+  Future<bool> ensureDefaultsIfMissing({
+    String email = '',
+    String displayName = '',
+  }) async {
+    final uid = _activeUserId;
+    if (uid.isEmpty) return false;
+    var seeded = false;
+
+    if (_categories.isEmpty) {
+      await saveCategories(CategoryItem.defaultCategories());
+      seeded = true;
+    }
+
+    final existingProfile = await (_db.select(_db.localProfiles)
+          ..where((t) => t.userId.equals(uid)))
+        .getSingleOrNull();
+    if (existingProfile == null) {
+      final initialProfile = UserProfile.defaultProfile().copyWith(
+        uid: uid,
+        email: email,
+        displayName: displayName.isNotEmpty
+            ? displayName
+            : (email.contains('@') ? email.split('@').first : 'User'),
+      );
+      await saveProfile(initialProfile);
+      seeded = true;
+    } else if (email.isNotEmpty && _profile.email != email) {
+      await saveProfile(_profile.copyWith(
+        uid: uid,
+        email: email,
+        displayName: displayName.isNotEmpty ? displayName : _profile.displayName,
+      ));
+      seeded = true;
+    }
+    return seeded;
   }
 
   Future<void> reloadFromDb(String userId) async {

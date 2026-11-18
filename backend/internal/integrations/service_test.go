@@ -303,6 +303,35 @@ func TestMultiCalendarGoogleSyncAndTaskgiverFlow(t *testing.T) {
 	}
 	scenario.Test(t)
 
+	dueTimeScenario := tests.ApiScenario{
+		Name:   "public taskgiver submit with dueDate dueTime and tzOffset",
+		Method: http.MethodPost,
+		URL:    "/api/give/tok_test_123/tasks",
+		Body:   strings.NewReader(`{"title":"Pickup keys","importance":3,"dueDate":"2026-12-01","dueTime":"14:30","tzOffsetMinutes":-60}`),
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+			"Accept":       "application/json",
+		},
+		BeforeTestFunc: func(t testing.TB, app *tests.TestApp, e *core.ServeEvent) {
+			svc.RegisterRoutes(e)
+		},
+		ExpectedStatus:  http.StatusCreated,
+		ExpectedContent: []string{`"title":"Pickup keys"`, `"dueDate":"2026-12-01T13:30:00Z"`},
+	}
+	dueTimeScenario.Test(t)
+
+	htmlScenario := tests.ApiScenario{
+		Name:   "public taskgiver page includes dueTime input and localized due hook",
+		Method: http.MethodGet,
+		URL:    "/give/tok_test_123",
+		BeforeTestFunc: func(t testing.TB, app *tests.TestApp, e *core.ServeEvent) {
+			svc.RegisterRoutes(e)
+		},
+		ExpectedStatus:  http.StatusOK,
+		ExpectedContent: []string{`id="dueTime"`, `name="dueTime"`, `data-due-iso="2026-12-01T13:30:00Z"`},
+	}
+	htmlScenario.Test(t)
+
 	// Revoke token and verify public submission is rejected
 	tg.Set("isActive", false)
 	_ = app.Save(tg)

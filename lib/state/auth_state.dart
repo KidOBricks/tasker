@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/models/user_account.dart';
 import '../data/services/auth_service.dart';
@@ -56,12 +57,16 @@ class AuthNotifier extends Notifier<UserAccount?> {
       user.id,
       email: user.email,
       displayName: user.displayName,
+      seedDefaults: false,
     );
     state = user;
 
     final dbService = ref.read(databaseServiceProvider);
     await dbService.performCloudSync(userId: user.id);
-    await dbService.startRealtimeSync(user.id);
+    if (await repo.ensureDefaultsIfMissing(email: user.email, displayName: user.displayName)) {
+      await dbService.performCloudSync(userId: user.id);
+    }
+    unawaited(dbService.startRealtimeSync(user.id));
   }
 
   Future<void> signOut() async {

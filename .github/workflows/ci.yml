@@ -85,8 +85,9 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          VERSION_NAME="1.0.${{ github.run_number }}"
-          BUILD_ARGS="--release --build-name=$VERSION_NAME --build-number=${{ github.run_number }}"
+          BUILD_NUM=$((100 + ${{ github.run_number }}))
+          VERSION_NAME="1.1.$BUILD_NUM"
+          BUILD_ARGS="--release --build-name=$VERSION_NAME --build-number=$BUILD_NUM"
           if [ -n "${{ vars.TASKER_API_URL }}" ]; then
             BUILD_ARGS="$BUILD_ARGS --dart-define=TASKER_API_URL=${{ vars.TASKER_API_URL }}"
           fi

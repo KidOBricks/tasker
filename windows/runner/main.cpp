@@ -1,9 +1,47 @@
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
+#include <shobjidl.h>
 #include <windows.h>
 
 #include "flutter_window.h"
 #include "utils.h"
+
+namespace {
+
+constexpr wchar_t kTaskerAppUserModelId[] = L"KidOBricks.Tasker.Desktop";
+
+void RegisterTaskerAppUserModelId() {
+  SetCurrentProcessExplicitAppUserModelID(kTaskerAppUserModelId);
+
+  HKEY aumid_key = nullptr;
+  const wchar_t* aumid_path =
+      L"Software\\Classes\\AppUserModelId\\KidOBricks.Tasker.Desktop";
+  if (RegCreateKeyExW(HKEY_CURRENT_USER, aumid_path, 0, nullptr, 0, KEY_WRITE,
+                      nullptr, &aumid_key, nullptr) == ERROR_SUCCESS) {
+    const wchar_t display_name[] = L"Tasker";
+    RegSetValueExW(aumid_key, L"DisplayName", 0, REG_SZ,
+                   reinterpret_cast<const BYTE*>(display_name),
+                   sizeof(display_name));
+    RegCloseKey(aumid_key);
+  }
+
+  HKEY notif_key = nullptr;
+  DWORD disposition = 0;
+  const wchar_t* notif_path =
+      L"Software\\Microsoft\\Windows\\CurrentVersion\\Notifications\\Settings\\KidOBricks.Tasker.Desktop";
+  if (RegCreateKeyExW(HKEY_CURRENT_USER, notif_path, 0, nullptr, 0, KEY_WRITE,
+                      nullptr, &notif_key, &disposition) == ERROR_SUCCESS) {
+    if (disposition == REG_CREATED_NEW_KEY) {
+      DWORD show_in_center = 1;
+      RegSetValueExW(notif_key, L"ShowInActionCenter", 0, REG_DWORD,
+                     reinterpret_cast<const BYTE*>(&show_in_center),
+                     sizeof(show_in_center));
+    }
+    RegCloseKey(notif_key);
+  }
+}
+
+}  // namespace
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
@@ -16,6 +54,7 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   // Initialize COM, so that it is available for use in the library and/or
   // plugins.
   ::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+  RegisterTaskerAppUserModelId();
 
   flutter::DartProject project(L"data");
 

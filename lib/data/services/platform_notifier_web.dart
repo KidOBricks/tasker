@@ -22,3 +22,13 @@ Future<void> showPlatformNotification({
     web.Notification(title, web.NotificationOptions(body: body, tag: 'tasker-$id'));
   } catch (_) {}
 }
+
+Future<void> syncPlatformNotificationSchedule({
+  required List<Map<String, dynamic>> alarms,
+  required List<String> knownTaskIds,
+  required bool enabled,
+  required String userId,
+  required String serverUrl,
+}) async {}
+
+Future<void> clearPlatformNotificationSchedule() async {}

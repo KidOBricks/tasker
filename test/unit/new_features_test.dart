@@ -110,6 +110,53 @@ void main() {
       final muted = profile.copyWith(notificationsEnabled: false);
       expect(NotificationService.computePendingReminders(tasks, muted, now: now), isEmpty);
     });
+
+    test('computeScheduledAlarms returns future upcoming, overdue, and next daily review triggers', () {
+      final now = DateTime(2026, 11, 18, 10, 0);
+      final profile = UserProfile.defaultProfile().copyWith(
+        notificationsEnabled: true,
+        notifyPriorMinutes: 30,
+        notifyForTier: 'all',
+        notifyForOverdue: true,
+        reviewTasksEnabled: true,
+        reviewTasksTime: '09:30',
+      );
+      final tasks = [
+        TaskItem(
+          id: 'upcoming',
+          userId: 'u1',
+          title: 'Submit deck',
+          baseImportance: 2,
+          effectiveImportance: 2,
+          dueDate: DateTime(2026, 11, 18, 11, 15),
+          createdAt: now,
+        ),
+        TaskItem(
+          id: 'done',
+          userId: 'u1',
+          title: 'Already done',
+          baseImportance: 3,
+          effectiveImportance: 3,
+          status: TaskStatus.completed,
+          dueDate: DateTime(2026, 11, 18, 12, 0),
+          createdAt: now,
+        ),
+      ];
+
+      final alarms = NotificationService.computeScheduledAlarms(tasks, profile, now: now);
+      expect(alarms.map((a) => a.title).toList(), [
+        'Upcoming: Submit deck',
+        'Overdue: Submit deck',
+        'Daily Task Review',
+      ]);
+      expect(alarms[0].triggerAt, DateTime(2026, 11, 18, 10, 45));
+      expect(alarms[1].triggerAt, DateTime(2026, 11, 18, 11, 15));
+      // Since 09:30 has passed today at 10:00, review alarm schedules for tomorrow 09:30.
+      expect(alarms[2].triggerAt, DateTime(2026, 11, 19, 9, 30));
+
+      final muted = profile.copyWith(notificationsEnabled: false);
+      expect(NotificationService.computeScheduledAlarms(tasks, muted, now: now), isEmpty);
+    });
   });
 
   group('CelebrationConfettiOverlay', () {
