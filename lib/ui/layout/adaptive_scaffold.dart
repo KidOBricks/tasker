@@ -173,10 +173,41 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
       case SyncStatus.syncing:
         return AppColors.primary;
       case SyncStatus.offline:
-        return AppColors.textMuted;
       case SyncStatus.error:
         return AppColors.overdue;
     }
+  }
+
+  static Widget _buildSyncBadge(SyncStatus status) {
+    final isWarning = status == SyncStatus.offline || status == SyncStatus.error;
+    final color = _syncColor(status);
+    final label = status == SyncStatus.offline ? 'Offline — Not Syncing' : status.displayName;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (isWarning)
+          Icon(Icons.error_outline, size: 13, color: color)
+        else
+          Container(
+            width: 6,
+            height: 6,
+            decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+          ),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: AppTheme.mono(
+              11,
+              color: isWarning ? AppColors.overdue : AppColors.textMuted,
+              weight: isWarning ? FontWeight.w600 : FontWeight.w400,
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -243,8 +274,6 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
       _selectedIndex = 0;
     }
 
-    final statusColor = _syncColor(syncStatus);
-
     final Widget shell = isDesktop
         ? Scaffold(
         body: Row(
@@ -283,27 +312,7 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
                           ],
                         ),
                         const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                color: statusColor,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                            const SizedBox(width: 6),
-                            Expanded(
-                              child: Text(
-                                syncStatus.displayName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: AppTheme.mono(11, color: AppColors.textMuted),
-                              ),
-                            ),
-                          ],
-                        ),
+                        _buildSyncBadge(syncStatus),
                       ],
                     ),
                   ),
@@ -463,17 +472,9 @@ class _AdaptiveScaffoldState extends ConsumerState<AdaptiveScaffold> {
           ],
         ),
         actions: [
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 6,
-                height: 6,
-                decoration: BoxDecoration(color: statusColor, shape: BoxShape.circle),
-              ),
-              const SizedBox(width: 6),
-              Text(syncStatus.displayName, style: AppTheme.mono(11, color: AppColors.textMuted)),
-            ],
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 180),
+            child: _buildSyncBadge(syncStatus),
           ),
           const SizedBox(width: 8),
           IconButton(

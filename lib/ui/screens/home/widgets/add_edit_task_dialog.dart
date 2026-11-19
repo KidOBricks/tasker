@@ -82,7 +82,7 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
     _descController = TextEditingController(text: task?.description ?? '');
     _selectedCategoryId = task?.categoryId ??
         (widget.categories.isNotEmpty ? widget.categories.first.id : 'all');
-    _selectedImportance = task?.baseImportance ?? 3;
+    _selectedImportance = (task?.baseImportance ?? 3).clamp(1, widget.numImportanceLevels);
     _attachmentPaths = List.from(task?.attachmentPaths ?? []);
     _subtasks = List.from(task?.subtasks ?? []);
     _isRecurring = task?.isRecurring ?? false;
@@ -105,7 +105,10 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
 
   void _syncParentImportanceFromSubtasks() {
     if (_subtasks.isEmpty) return;
-    _selectedImportance = _subtasks.map((s) => s.baseImportance).reduce(math.max);
+    _selectedImportance = _subtasks
+        .map((s) => s.baseImportance)
+        .reduce(math.max)
+        .clamp(1, widget.numImportanceLevels);
   }
 
   void _addSubtask() {
@@ -351,12 +354,12 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
                           style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: AppColors.textSecondary),
                         ),
                         const SizedBox(height: 8),
-                        Row(
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
                           children: [
-                            for (int lvl = widget.numImportanceLevels; lvl >= 1; lvl--) ...[
+                            for (int lvl = widget.numImportanceLevels; lvl >= 1; lvl--)
                               _buildImportanceChip(lvl, _getLevelTitle(lvl), _getLevelColor(lvl)),
-                              if (lvl > 1) const SizedBox(width: 8),
-                            ],
                           ],
                         ),
                         const SizedBox(height: 14),
@@ -899,27 +902,24 @@ class _AddEditTaskDialogState extends State<AddEditTaskDialog> {
 
   Widget _buildImportanceChip(int level, String label, Color color) {
     final isSelected = _selectedImportance == level;
-    return Expanded(
-      child: GestureDetector(
-        onTap: () => _onImportanceChanged(level),
-        child: Container(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          decoration: BoxDecoration(
-            color: isSelected ? color.withValues(alpha: 0.22) : AppColors.background,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: isSelected ? color : AppColors.border, width: isSelected ? 1.5 : 1),
+    return GestureDetector(
+      onTap: () => _onImportanceChanged(level),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected ? color.withValues(alpha: 0.22) : AppColors.background,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: isSelected ? color : AppColors.border, width: isSelected ? 1.5 : 1),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
+            color: isSelected ? color : AppColors.textSecondary,
           ),
-          alignment: Alignment.center,
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-              color: isSelected ? color : AppColors.textSecondary,
-            ),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
         ),
       ),
     );

@@ -12,11 +12,12 @@ class IdeasScreen extends ConsumerWidget {
   const IdeasScreen({super.key});
 
   void _acceptSuggestion(BuildContext context, WidgetRef ref, ExtractedTaskSuggestion suggestion) {
+    final maxLevels = ref.read(profileProvider).numImportanceLevels;
     ref.read(tasksProvider.notifier).addTask(
           title: suggestion.title,
           description: suggestion.description,
           categoryId: suggestion.categoryId,
-          baseImportance: suggestion.importance,
+          baseImportance: suggestion.importance.clamp(1, maxLevels),
           dueDate: suggestion.suggestedDueDate,
           emailRef: {
             if (suggestion.emailId != null) 'emailId': suggestion.emailId,

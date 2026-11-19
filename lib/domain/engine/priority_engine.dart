@@ -17,9 +17,12 @@ class PriorityEngine {
       return task;
     }
 
+    final clampedBase = task.baseImportance.clamp(1, profile.numImportanceLevels);
+
     if (task.dueDate == null) {
       return task.copyWith(
-        effectiveImportance: task.baseImportance,
+        baseImportance: clampedBase,
+        effectiveImportance: clampedBase,
         isOverdue: false,
       );
     }
@@ -29,33 +32,28 @@ class PriorityEngine {
 
     if (isOverdue) {
       return task.copyWith(
+        baseImportance: clampedBase,
         effectiveImportance: profile.numImportanceLevels,
         isOverdue: true,
       );
     }
 
     final diff = dueDate.difference(now);
-    final level3Duration = profile.getThresholdDuration(3);
-    final level2Duration = profile.getThresholdDuration(2);
+    int computedImportance = clampedBase;
 
-    int computedImportance = task.baseImportance;
-
-    // Escalation rule check:
-    if (diff.inSeconds <= level3Duration.inSeconds) {
-      // Escalates to Level 3 (or max configured level)
-      computedImportance = max(task.baseImportance, min(3, profile.numImportanceLevels));
-    } else if (diff.inSeconds <= level2Duration.inSeconds) {
-      // Escalates to Level 2
-      computedImportance = max(task.baseImportance, min(2, profile.numImportanceLevels));
-    } else {
-      // Postponed or far away -> Revert to original base importance
-      computedImportance = task.baseImportance;
+    // Escalate to the highest configured level (numImportanceLevels down to 2) whose threshold matches.
+    for (int lvl = profile.numImportanceLevels; lvl >= 2; lvl--) {
+      if (diff.inSeconds <= profile.getThresholdDuration(lvl).inSeconds) {
+        computedImportance = max(clampedBase, lvl);
+        break;
+      }
     }
 
     // Ensure within valid bounds [1, profile.numImportanceLevels]
     computedImportance = computedImportance.clamp(1, profile.numImportanceLevels);
 
     return task.copyWith(
+      baseImportance: clampedBase,
       effectiveImportance: computedImportance,
       isOverdue: false,
     );

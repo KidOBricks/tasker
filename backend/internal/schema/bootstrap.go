@@ -136,6 +136,7 @@ func ensureUserProfilesCollection(app core.App, usersColId string) error {
 	ensureField(col, &core.TextField{Name: "level2WindowUnit", Max: 20})
 	ensureField(col, &core.NumberField{Name: "level3WindowValue"})
 	ensureField(col, &core.TextField{Name: "level3WindowUnit", Max: 20})
+	ensureField(col, &core.JSONField{Name: "escalationWindows"})
 	ensureField(col, &core.BoolField{Name: "twoWayTimeBlocking"})
 	ensureField(col, &core.BoolField{Name: "vacationModeEnabled"})
 	ensureField(col, &core.TextField{Name: "vacationStartDate", Max: 40})

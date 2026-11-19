@@ -47,6 +47,7 @@ class DatabaseService {
   final _taskGivenController = StreamController<TaskGivenAlert>.broadcast();
 
   SyncStatus _currentStatus = SyncStatus.offline;
+  String? _lastError;
   DateTime? _lastSyncTime;
   bool _isSyncing = false;
   bool _resyncQueued = false;
@@ -62,9 +63,13 @@ class DatabaseService {
   }
 
   SyncStatus get status => _currentStatus;
+  String? get lastError => _lastError;
   DateTime? get lastSyncTime => _lastSyncTime;
   String get serverUrl => _pb.baseURL;
-  Stream<SyncStatus> get syncStatusStream => _syncStatusController.stream;
+  Stream<SyncStatus> get syncStatusStream async* {
+    yield _currentStatus;
+    yield* _syncStatusController.stream;
+  }
   Stream<int> get dataUpdatedStream => _dataUpdatedController.stream;
   Stream<TaskGivenAlert> get taskGivenStream => _taskGivenController.stream;
 
@@ -106,6 +111,7 @@ class DatabaseService {
         await _pullCollections(currentUserId);
         await _repo.reloadFromDb(currentUserId);
 
+        _lastError = null;
         _lastSyncTime = DateTime.now();
         _setStatus(SyncStatus.synced);
         if (!_dataUpdatedController.isClosed) {
@@ -117,7 +123,9 @@ class DatabaseService {
       }
     } catch (e) {
       debugPrint('PocketBase sync error: $e');
-      _setStatus(SyncStatus.offline);
+      _lastError = e.toString();
+      final isServerRejection = e is ClientException && e.statusCode >= 400;
+      _setStatus(isServerRejection ? SyncStatus.error : SyncStatus.offline);
       _scheduleRetryIfOutboxNonEmpty(currentUserId);
     } finally {
       _isSyncing = false;
@@ -189,7 +197,13 @@ class DatabaseService {
 
     for (final item in items) {
       final payload = json.decode(item.payloadJson) as Map<String, dynamic>;
-      await _pushSingleRecord(userId, item.collectionName, item.recordKey, payload);
+      await _pushSingleRecord(
+        userId,
+        item.collectionName,
+        item.recordKey,
+        item.operation,
+        payload,
+      );
       await (_db.delete(_db.syncOutbox)..where((o) => o.id.equals(item.id))).go();
     }
   }
@@ -198,9 +212,9 @@ class DatabaseService {
     String userId,
     String collection,
     String recordKey,
+    String operation,
     Map<String, dynamic> payload,
   ) async {
-    final body = _buildRemoteBody(userId, collection, recordKey, payload);
     final filter = collection == 'user_profiles'
         ? 'user = "${_escapeFilter(userId)}"'
         : 'user = "${_escapeFilter(userId)}" && clientId = "${_escapeFilter(recordKey)}"';
@@ -212,6 +226,21 @@ class DatabaseService {
       if (e.statusCode != 404) rethrow;
     }
 
+    if (operation == 'delete' && collection != 'user_profiles') {
+      if (existing == null) return;
+      final nowIso = DateTime.now().toUtc().toIso8601String();
+      await _pb.collection(collection).update(existing.id, body: {
+        'deletedAt': (payload['deletedAt']?.toString().isNotEmpty ?? false)
+            ? payload['deletedAt']
+            : nowIso,
+        'clientUpdatedAt': (payload['clientUpdatedAt']?.toString().isNotEmpty ?? false)
+            ? payload['clientUpdatedAt']
+            : nowIso,
+      });
+      return;
+    }
+
+    final body = _buildRemoteBody(userId, collection, recordKey, payload);
     if (existing != null) {
       await _pb.collection(collection).update(existing.id, body: body);
     } else {
@@ -297,6 +326,7 @@ class DatabaseService {
           'level2WindowUnit': payload['level2WindowUnit'] ?? 'days',
           'level3WindowValue': payload['level3WindowValue'] ?? 1,
           'level3WindowUnit': payload['level3WindowUnit'] ?? 'days',
+          'escalationWindows': payload['escalationWindows'] ?? const {},
           'twoWayTimeBlocking': payload['twoWayTimeBlocking'] == true,
           'vacationModeEnabled': payload['vacationModeEnabled'] == true,
           'vacationStartDate': payload['vacationStartDate'] ?? '',

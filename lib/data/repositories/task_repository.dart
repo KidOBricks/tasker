@@ -192,6 +192,7 @@ class TaskRepository {
     }
 
     for (final delId in deletedIds) {
+      final prev = previousById[delId];
       await (_db.update(_db.localTasks)
             ..where((t) => t.id.equals(delId) & t.userId.equals(uid)))
           .write(LocalTasksCompanion(
@@ -205,6 +206,7 @@ class TaskRepository {
         operation: 'delete',
         payload: {
           'clientId': delId,
+          if (prev != null) 'title': prev.title,
           'clientUpdatedAt': now.toIso8601String(),
           'deletedAt': now.toIso8601String(),
         },
@@ -215,7 +217,8 @@ class TaskRepository {
 
   Future<void> saveCategories(List<CategoryItem> categories) async {
     final uid = _activeUserId;
-    final previousIds = _categories.map((c) => c.id).toSet();
+    final previousById = {for (final c in _categories) c.id: c};
+    final previousIds = previousById.keys.toSet();
     final nextIds = categories.map((c) => c.id).toSet();
     final deletedIds = previousIds.difference(nextIds);
     final now = DateTime.now().toUtc();
@@ -253,6 +256,7 @@ class TaskRepository {
     }
 
     for (final delId in deletedIds) {
+      final prev = previousById[delId];
       await (_db.update(_db.localCategories)
             ..where((c) => c.id.equals(delId) & c.userId.equals(uid)))
           .write(LocalCategoriesCompanion(
@@ -266,6 +270,7 @@ class TaskRepository {
         operation: 'delete',
         payload: {
           'clientId': delId,
+          if (prev != null) 'name': prev.name,
           'clientUpdatedAt': now.toIso8601String(),
           'deletedAt': now.toIso8601String(),
         },
@@ -276,7 +281,8 @@ class TaskRepository {
 
   Future<void> saveRecurrenceRules(List<RecurrenceRule> rules) async {
     final uid = _activeUserId;
-    final previousIds = _rules.map((r) => r.id).toSet();
+    final previousById = {for (final r in _rules) r.id: r};
+    final previousIds = previousById.keys.toSet();
     final nextIds = rules.map((r) => r.id).toSet();
     final deletedIds = previousIds.difference(nextIds);
     final now = DateTime.now().toUtc();
@@ -327,6 +333,7 @@ class TaskRepository {
     }
 
     for (final delId in deletedIds) {
+      final prev = previousById[delId];
       await (_db.update(_db.localRecurrenceRules)
             ..where((r) => r.id.equals(delId) & r.userId.equals(uid)))
           .write(LocalRecurrenceRulesCompanion(
@@ -340,6 +347,7 @@ class TaskRepository {
         operation: 'delete',
         payload: {
           'clientId': delId,
+          if (prev != null) 'title': prev.title,
           'clientUpdatedAt': now.toIso8601String(),
           'deletedAt': now.toIso8601String(),
         },

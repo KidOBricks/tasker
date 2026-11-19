@@ -13,6 +13,7 @@ import 'package:task_calendar_sync/data/services/auth_service.dart';
 import 'package:task_calendar_sync/data/services/database_service.dart';
 import 'package:task_calendar_sync/data/services/server_config.dart';
 import 'package:task_calendar_sync/domain/models/task_item.dart';
+import 'package:task_calendar_sync/domain/models/user_profile.dart';
 import 'package:task_calendar_sync/state/app_state.dart';
 import 'package:task_calendar_sync/state/auth_state.dart';
 
@@ -364,5 +365,241 @@ void main() {
     expect(mutatingRequests, isEmpty);
     expect(repo.getProfile().notifyPriorMinutes, 45);
     expect(repo.getCategories().single.name, 'Custom Cloud');
+    await pumpEventQueue();
+  });
+
+  test('deleting synced and local-only tasks syncs cleanly without PocketBase 400 and supports undo', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    final repo = TaskRepository(db);
+    await repo.loadForUser('u1');
+
+    final remoteRecords = <String, Map<String, dynamic>>{
+      't_remote': {
+        'id': 'pb_t_remote',
+        'user': 'u1',
+        'clientId': 't_remote',
+        'title': 'Synced Task',
+        'categoryId': 'all',
+        'baseImportance': 2,
+        'effectiveImportance': 2,
+        'status': 'pending',
+        'isOverdue': false,
+        'clientCreatedAt': '2026-11-18T20:00:00.000Z',
+        'clientUpdatedAt': '2026-11-18T20:00:00.000Z',
+        'attachmentPaths': [],
+        'subtasks': [],
+        'deletedAt': '',
+      },
+    };
+    final patchBodies = <Map<String, dynamic>>[];
+
+    final client = MockClient((req) async {
+      if (req.url.path == '/api/collections/tasks/records' && req.method == 'GET') {
+        final filter = req.url.queryParameters['filter'] ?? '';
+        if (filter.contains('clientId = "t_remote"')) {
+          return http.Response(json.encode(_pbList([remoteRecords['t_remote']!])), 200);
+        }
+        if (filter.contains('clientId = ')) {
+          return http.Response(json.encode(_pbList([])), 200);
+        }
+        return http.Response(json.encode(_pbList(remoteRecords.values.toList())), 200);
+      }
+      if (req.url.path == '/api/collections/tasks/records/pb_t_remote' && req.method == 'PATCH') {
+        final body = json.decode(req.body) as Map<String, dynamic>;
+        patchBodies.add(body);
+        // Simulate PocketBase rejecting blank title if a delete ever overwrote title with ''
+        if (body.containsKey('title') && (body['title'] as String).trim().isEmpty) {
+          return http.Response(json.encode({'code': 400, 'message': 'title: Cannot be blank'}), 400);
+        }
+        remoteRecords['t_remote'] = {...remoteRecords['t_remote']!, ...body};
+        return http.Response(json.encode(remoteRecords['t_remote']), 200);
+      }
+      if (req.url.path == '/api/collections/tasks/records' && req.method == 'POST') {
+        final body = json.decode(req.body) as Map<String, dynamic>;
+        if ((body['title'] ?? '').toString().trim().isEmpty) {
+          return http.Response(json.encode({'code': 400, 'message': 'title: Cannot be blank'}), 400);
+        }
+        return http.Response(json.encode({'id': 'pb_created', ...body}), 200);
+      }
+      return http.Response(json.encode(_pbList([])), 200);
+    });
+
+    final pb = PocketBase('https://example.invalid', httpClientFactory: () => client);
+    pb.authStore.save(_fakeJwt('u1'), RecordModel({'id': 'u1', 'email': 'u1@example.com'}));
+    final dbService = DatabaseService(pb, db, repo);
+    addTearDown(dbService.dispose);
+
+    final container = ProviderContainer(
+      overrides: [
+        repositoryProvider.overrideWithValue(repo),
+        authServiceProvider.overrideWithValue(AuthService(pb, ServerConfig(prefs))),
+        databaseServiceProvider.overrideWithValue(dbService),
+      ],
+    );
+    addTearDown(container.dispose);
+    final sub = container.listen(tasksProvider, (_, _) {});
+    addTearDown(sub.close);
+
+    // Pull initial remote task
+    await dbService.performCloudSync(userId: 'u1');
+    await pumpEventQueue();
+    expect(container.read(tasksProvider).map((t) => t.id), contains('t_remote'));
+
+    // Also add a local-only task (not yet synced) and delete both
+    await container.read(tasksProvider.notifier).addTask(
+          title: 'Local Only',
+          categoryId: 'all',
+          baseImportance: 1,
+        );
+    final localOnlyId = container.read(tasksProvider).firstWhere((t) => t.title == 'Local Only').id;
+    await db.delete(db.syncOutbox).go();
+
+    await container.read(tasksProvider.notifier).deleteTask('t_remote');
+    await container.read(tasksProvider.notifier).deleteTask(localOnlyId);
+    await dbService.performCloudSync(userId: 'u1');
+    await pumpEventQueue();
+
+    expect(dbService.status, SyncStatus.synced);
+    expect(dbService.lastError, isNull);
+    expect(await db.select(db.syncOutbox).get(), isEmpty);
+    expect(patchBodies, isNotEmpty);
+    expect(patchBodies.last.containsKey('title'), isFalse);
+    expect((patchBodies.last['deletedAt'] ?? '').toString(), isNotEmpty);
+    expect(container.read(tasksProvider), isEmpty);
+
+    // Undo deletion of t_remote -> restores task and clears deletedAt on PocketBase
+    final delHistory = container
+        .read(taskHistoryProvider)
+        .firstWhere((h) => h.action == 'deleted' && h.taskId == 't_remote');
+    await container.read(tasksProvider.notifier).undoHistoryAction(delHistory.id);
+    await dbService.performCloudSync(userId: 'u1');
+    await pumpEventQueue();
+
+    expect(dbService.status, SyncStatus.synced);
+    expect(container.read(tasksProvider).map((t) => t.id), ['t_remote']);
+    expect(remoteRecords['t_remote']!['deletedAt'], '');
+  });
+
+  test('UserProfile.fromMap ignores PocketBase zero/blank defaults and savePrioritySettingsAndReindex clamps and syncs', () async {
+    SharedPreferences.setMockInitialValues({});
+    final prefs = await SharedPreferences.getInstance();
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    // Verify PocketBase unset defaults (0 and '') do not break dropdown values
+    final sanitized = UserProfile.fromMap({
+      'uid': 'u1',
+      'maxInProgressTasks': 0,
+      'numImportanceLevels': 0,
+      'level2WindowValue': 0,
+      'level2WindowUnit': '',
+      'level3WindowValue': 0,
+      'level3WindowUnit': '',
+      'vacationStartDate': '',
+    });
+    expect(sanitized.maxInProgressTasks, 3);
+    expect(sanitized.numImportanceLevels, 3);
+    expect(sanitized.level2WindowValue, 7);
+    expect(sanitized.level2WindowUnit, 'days');
+    expect(sanitized.vacationStartDate, isNull);
+
+    final repo = TaskRepository(db);
+    await repo.loadForUser('u1');
+
+    final pushedProfiles = <Map<String, dynamic>>[];
+    final pushedTasks = <Map<String, dynamic>>[];
+
+    final client = MockClient((req) async {
+      if (req.url.path == '/api/realtime') {
+        return http.Response('not found in test', 404);
+      }
+      if (req.url.path == '/api/collections/users/auth-with-password' && req.method == 'POST') {
+        return http.Response(
+          json.encode({
+            'token': _fakeJwt('u1'),
+            'record': {'id': 'u1', 'email': 'u1@example.com', 'displayName': 'User', 'role': 'user'},
+          }),
+          200,
+        );
+      }
+      if (req.url.path == '/api/collections/user_profiles/records' &&
+          (req.method == 'POST' || req.method == 'PATCH')) {
+        final body = json.decode(req.body) as Map<String, dynamic>;
+        pushedProfiles.add(body);
+        return http.Response(json.encode({'id': 'pb_p1', ...body}), 200);
+      }
+      if (req.url.path == '/api/collections/tasks/records' &&
+          (req.method == 'POST' || req.method == 'PATCH')) {
+        final body = json.decode(req.body) as Map<String, dynamic>;
+        pushedTasks.add(body);
+        return http.Response(json.encode({'id': 'pb_t', ...body}), 200);
+      }
+      return http.Response(json.encode(_pbList([])), 200);
+    });
+
+    final pb = PocketBase('https://example.invalid', httpClientFactory: () => client);
+    final authService = AuthService(pb, ServerConfig(prefs));
+    final dbService = DatabaseService(pb, db, repo);
+    addTearDown(dbService.dispose);
+
+    final container = ProviderContainer(
+      overrides: [
+        repositoryProvider.overrideWithValue(repo),
+        authServiceProvider.overrideWithValue(authService),
+        databaseServiceProvider.overrideWithValue(dbService),
+      ],
+    );
+    addTearDown(container.dispose);
+    final subProfile = container.listen(profileProvider, (_, _) {});
+    final subTasks = container.listen(tasksProvider, (_, _) {});
+    addTearDown(subProfile.close);
+    addTearDown(subTasks.close);
+
+    await container.read(authProvider.notifier).signIn('u1@example.com', 'secret');
+    await container.read(tasksProvider.notifier).addTask(
+          title: 'Level 5 task',
+          categoryId: 'all',
+          baseImportance: 5,
+          dueDate: DateTime.now().add(const Duration(minutes: 20)),
+        );
+    // Elevate profile to 5 levels with 30-minute escalation window for level 5
+    final status = await container.read(profileProvider.notifier).savePrioritySettingsAndReindex(
+      numImportanceLevels: 5,
+      levelNames: {
+        1: 'Chill',
+        2: 'Soon',
+        3: 'Focus',
+        4: 'Critical',
+        5: 'Fire',
+      },
+      escalationWindows: {
+        2: const EscalationWindow(value: 7, unit: 'days'),
+        3: const EscalationWindow(value: 2, unit: 'days'),
+        4: const EscalationWindow(value: 6, unit: 'hours'),
+        5: const EscalationWindow(value: 30, unit: 'minutes'),
+      },
+    );
+    expect(status, SyncStatus.synced);
+    expect(container.read(profileProvider).numImportanceLevels, 5);
+    expect(container.read(profileProvider).getLevelName(5), 'Fire');
+    expect(container.read(profileProvider).getThresholdDuration(5), const Duration(minutes: 30));
+    expect(pushedProfiles.last['numImportanceLevels'], 5);
+    expect(pushedProfiles.last['escalationWindows']['5']['unit'], 'minutes');
+
+    // Now reduce to 3 levels via savePrioritySettingsAndReindex -> clamps tasks and pushes
+    final reducedStatus = await container.read(profileProvider.notifier).savePrioritySettingsAndReindex(
+      numImportanceLevels: 3,
+      levelNames: container.read(profileProvider).levelNames,
+      escalationWindows: container.read(profileProvider).escalationWindows,
+    );
+    await pumpEventQueue();
+
+    expect(reducedStatus, SyncStatus.synced);
+    expect(container.read(tasksProvider).every((t) => t.baseImportance <= 3), isTrue);
+    expect(pushedTasks.any((t) => t['baseImportance'] == 3), isTrue);
   });
 }

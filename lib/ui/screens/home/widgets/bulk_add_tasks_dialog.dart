@@ -271,7 +271,7 @@ class _BulkAddTasksDialogState extends State<BulkAddTasksDialog> {
                     },
                   ),
                   DropdownButton<int>(
-                    value: _defaultImportance,
+                    value: _defaultImportance.clamp(1, widget.numImportanceLevels),
                     dropdownColor: AppColors.surface,
                     items: List.generate(widget.numImportanceLevels, (i) => i + 1)
                         .map((lvl) => DropdownMenuItem(value: lvl, child: Text('Priority L$lvl', style: const TextStyle(fontSize: 12))))
@@ -337,7 +337,7 @@ class _BulkAddTasksDialogState extends State<BulkAddTasksDialog> {
                               ),
                               const SizedBox(width: 8),
                               DropdownButton<int>(
-                                value: row.importance,
+                                value: row.importance.clamp(1, widget.numImportanceLevels),
                                 dropdownColor: AppColors.surface,
                                 items: List.generate(widget.numImportanceLevels, (i) => i + 1)
                                     .map((lvl) => DropdownMenuItem(value: lvl, child: Text('L$lvl', style: const TextStyle(fontSize: 12))))

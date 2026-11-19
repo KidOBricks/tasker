@@ -8,6 +8,7 @@ import (
 	"html"
 	"net/http"
 	"net/mail"
+	"strconv"
 	"strings"
 	"time"
 
@@ -133,6 +134,61 @@ func (s *Service) findActiveTaskgiverByToken(token string) (*core.Record, error)
 	return rec, nil
 }
 
+func loadOwnerPriorityConfig(app core.App, userID string) (int, map[int]string) {
+	numLevels := 3
+	names := map[int]string{
+		1: "Level 1 (Low)",
+		2: "Level 2 (Medium)",
+		3: "Level 3 (Urgent)",
+		4: "Level 4 (Critical)",
+		5: "Level 5 (Emergency)",
+	}
+
+	profile, err := app.FindFirstRecordByFilter(
+		"user_profiles",
+		"user = {:uid}",
+		map[string]any{"uid": userID},
+	)
+	if err != nil || profile == nil {
+		return numLevels, names
+	}
+
+	if n := profile.GetInt("numImportanceLevels"); n >= 3 && n <= 5 {
+		numLevels = n
+	}
+
+	raw := profile.GetString("levelNames")
+	if strings.TrimSpace(raw) != "" {
+		var parsed map[string]any
+		if json.Unmarshal([]byte(raw), &parsed) == nil {
+			for k, v := range parsed {
+				lvl, err := strconv.Atoi(strings.TrimSpace(k))
+				if err != nil || lvl < 1 || lvl > 5 {
+					continue
+				}
+				label := strings.TrimSpace(fmt.Sprint(v))
+				if label != "" && v != nil {
+					names[lvl] = label
+				}
+			}
+		}
+	}
+	return numLevels, names
+}
+
+func priorityLabelFor(level, numLevels int, names map[int]string) string {
+	if level < 1 {
+		level = 1
+	}
+	if level > numLevels {
+		level = numLevels
+	}
+	if label := strings.TrimSpace(names[level]); label != "" {
+		return label
+	}
+	return fmt.Sprintf("Level %d", level)
+}
+
 func (s *Service) handlePublicTaskgiverPage(e *core.RequestEvent) error {
 	token := e.Request.PathValue("token")
 	giver, err := s.findActiveTaskgiverByToken(token)
@@ -140,12 +196,15 @@ func (s *Service) handlePublicTaskgiverPage(e *core.RequestEvent) error {
 		return e.HTML(http.StatusNotFound, renderTaskgiverErrorHTML("This task link is invalid or has been revoked."))
 	}
 
+	ownerID := giver.GetString("user")
 	ownerName := "Tasker User"
-	if owner, err := s.App.FindRecordById("users", giver.GetString("user")); err == nil && owner != nil {
+	if owner, err := s.App.FindRecordById("users", ownerID); err == nil && owner != nil {
 		if dn := strings.TrimSpace(owner.GetString("displayName")); dn != "" {
 			ownerName = dn
 		}
 	}
+
+	numLevels, levelNames := loadOwnerPriorityConfig(s.App, ownerID)
 
 	tasks, _ := s.App.FindRecordsByFilter(
 		"tasks",
@@ -156,7 +215,7 @@ func (s *Service) handlePublicTaskgiverPage(e *core.RequestEvent) error {
 		map[string]any{"gid": giver.Id},
 	)
 
-	return e.HTML(http.StatusOK, renderTaskgiverPageHTML(token, giver.GetString("name"), ownerName, tasks))
+	return e.HTML(http.StatusOK, renderTaskgiverPageHTML(token, giver.GetString("name"), ownerName, numLevels, levelNames, tasks))
 }
 
 func (s *Service) handlePublicCreateTask(e *core.RequestEvent) error {
@@ -190,9 +249,14 @@ func (s *Service) handlePublicCreateTask(e *core.RequestEvent) error {
 		title = title[:300]
 	}
 
+	ownerID := giver.GetString("user")
+	numLevels, levelNames := loadOwnerPriorityConfig(s.App, ownerID)
 	imp := body.Importance
-	if imp < 1 || imp > 3 {
+	if imp < 1 || imp > numLevels {
 		imp = 2
+		if imp > numLevels {
+			imp = numLevels
+		}
 	}
 
 	dueISO := parseTaskgiverDueDate(body.DueDate, body.DueTime, body.TzOffsetMinutes)
@@ -205,7 +269,7 @@ func (s *Service) handlePublicCreateTask(e *core.RequestEvent) error {
 	nowISO := time.Now().UTC().Format(time.RFC3339)
 
 	rec := core.NewRecord(col)
-	rec.Set("user", giver.GetString("user"))
+	rec.Set("user", ownerID)
 	rec.Set("clientId", "tg_"+clientSuffix)
 	rec.Set("title", title)
 	rec.Set("description", strings.TrimSpace(body.Description))
@@ -231,13 +295,14 @@ func (s *Service) handlePublicCreateTask(e *core.RequestEvent) error {
 	}
 
 	return e.JSON(http.StatusCreated, map[string]any{
-		"id":         rec.Id,
-		"clientId":   rec.GetString("clientId"),
-		"title":      rec.GetString("title"),
-		"status":     rec.GetString("status"),
-		"dueDate":    rec.GetString("dueDate"),
-		"importance": imp,
-		"created":    nowISO,
+		"id":              rec.Id,
+		"clientId":        rec.GetString("clientId"),
+		"title":           rec.GetString("title"),
+		"status":          rec.GetString("status"),
+		"dueDate":         rec.GetString("dueDate"),
+		"importance":      imp,
+		"importanceLabel": priorityLabelFor(imp, numLevels, levelNames),
+		"created":         nowISO,
 	})
 }
 
@@ -296,7 +361,7 @@ func renderTaskgiverErrorHTML(message string) string {
 </html>`, html.EscapeString(message))
 }
 
-func renderTaskgiverPageHTML(token, giverName, ownerName string, tasks []*core.Record) string {
+func renderTaskgiverPageHTML(token, giverName, ownerName string, numLevels int, levelNames map[int]string, tasks []*core.Record) string {
 	var listItems strings.Builder
 	if len(tasks) == 0 {
 		listItems.WriteString(`<li class="empty-item">No tasks sent yet. Use the form above to add one.</li>`)
@@ -330,14 +395,38 @@ func renderTaskgiverPageHTML(token, giverName, ownerName string, tasks []*core.R
 					html.EscapeString(dueFallback),
 				)
 			}
+			imp := t.GetInt("baseImportance")
+			if imp < 1 {
+				imp = 1
+			}
+			impLabel := priorityLabelFor(imp, numLevels, levelNames)
+			impHtml := fmt.Sprintf(`<span class="meta">Priority: %s</span>`, html.EscapeString(impLabel))
 			listItems.WriteString(fmt.Sprintf(
-				`<li class="task-row"><div><div class="task-title">%s</div>%s</div><span class="badge %s">%s</span></li>`,
+				`<li class="task-row"><div><div class="task-title">%s</div>%s%s</div><span class="badge %s">%s</span></li>`,
 				html.EscapeString(t.GetString("title")),
+				impHtml,
 				dueHtml,
 				cls,
 				label,
 			))
 		}
+	}
+
+	var priorityRadios strings.Builder
+	defaultImp := 2
+	if defaultImp > numLevels {
+		defaultImp = numLevels
+	}
+	for lvl := 1; lvl <= numLevels; lvl++ {
+		checkedAttr := ""
+		if lvl == defaultImp {
+			checkedAttr = " checked"
+		}
+		lbl := html.EscapeString(priorityLabelFor(lvl, numLevels, levelNames))
+		priorityRadios.WriteString(fmt.Sprintf(
+			`<label class="radio-opt" for="imp-%d"><input type="radio" id="imp-%d" name="importance" value="%d"%s><span>%s</span></label>`,
+			lvl, lvl, lvl, checkedAttr, lbl,
+		))
 	}
 
 	escToken := html.EscapeString(token)
@@ -500,9 +589,7 @@ func renderTaskgiverPageHTML(token, giverName, ownerName string, tasks []*core.R
         <fieldset>
           <legend>Priority</legend>
           <div class="radio-row">
-            <label class="radio-opt"><input type="radio" name="importance" value="1"> Low</label>
-            <label class="radio-opt"><input type="radio" name="importance" value="2" checked> Medium</label>
-            <label class="radio-opt"><input type="radio" name="importance" value="3"> Urgent</label>
+            %s
           </div>
         </fieldset>
 
@@ -636,6 +723,12 @@ func renderTaskgiverPageHTML(token, giverName, ownerName string, tasks []*core.R
           tDiv.className = 'task-title';
           tDiv.textContent = created.title;
           left.append(tDiv);
+          if (created.importanceLabel) {
+            const pMeta = document.createElement('span');
+            pMeta.className = 'meta';
+            pMeta.textContent = 'Priority: ' + created.importanceLabel;
+            left.append(pMeta);
+          }
           if (created.dueDate) {
             const meta = document.createElement('span');
             meta.className = 'meta';
@@ -669,5 +762,5 @@ func renderTaskgiverPageHTML(token, giverName, ownerName string, tasks []*core.R
     })();
   </script>
 </body>
-</html>`, escOwner, escOwner, escGiver, escToken, escOwner, string(initialJSON), listItems.String())
+</html>`, escOwner, escOwner, escGiver, escToken, priorityRadios.String(), escOwner, string(initialJSON), listItems.String())
 }

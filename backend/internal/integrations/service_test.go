@@ -351,4 +351,58 @@ func TestMultiCalendarGoogleSyncAndTaskgiverFlow(t *testing.T) {
 		ExpectedContent: []string{`Invalid or revoked link.`},
 	}
 	revokedScenario.Test(t)
+
+	// Re-activate and test 5 custom priority levels from user_profiles
+	tg.Set("isActive", true)
+	_ = app.Save(tg)
+
+	profCol, _ := app.FindCollectionByNameOrId("user_profiles")
+	prof := core.NewRecord(profCol)
+	prof.Set("user", user.Id)
+	prof.Set("numImportanceLevels", 5)
+	prof.Set("levelNames", map[string]string{
+		"1": "Someday",
+		"2": "Later",
+		"3": "Soon",
+		"4": "High",
+		"5": "Drop Everything",
+	})
+	if err := app.Save(prof); err != nil {
+		t.Fatal(err)
+	}
+
+	customLevelPostScenario := tests.ApiScenario{
+		Name:   "public taskgiver accepts owner's 5th priority level",
+		Method: http.MethodPost,
+		URL:    "/api/give/tok_test_123/tasks",
+		Body:   strings.NewReader(`{"title":"Server down","importance":5}`),
+		Headers: map[string]string{
+			"Content-Type": "application/json",
+			"Accept":       "application/json",
+		},
+		BeforeTestFunc: func(t testing.TB, app *tests.TestApp, e *core.ServeEvent) {
+			svc.RegisterRoutes(e)
+		},
+		ExpectedStatus:  http.StatusCreated,
+		ExpectedContent: []string{`"importance":5`, `"importanceLabel":"Drop Everything"`},
+	}
+	customLevelPostScenario.Test(t)
+
+	customLevelHtmlScenario := tests.ApiScenario{
+		Name:   "public taskgiver page renders owner's custom priority levels and task badges",
+		Method: http.MethodGet,
+		URL:    "/give/tok_test_123",
+		BeforeTestFunc: func(t testing.TB, app *tests.TestApp, e *core.ServeEvent) {
+			svc.RegisterRoutes(e)
+		},
+		ExpectedStatus: http.StatusOK,
+		ExpectedContent: []string{
+			`value="4"`,
+			`value="5"`,
+			`Drop Everything`,
+			`Someday`,
+			`Priority: Drop Everything`,
+		},
+	}
+	customLevelHtmlScenario.Test(t)
 }

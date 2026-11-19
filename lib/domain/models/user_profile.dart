@@ -1,5 +1,50 @@
 import 'dart:convert';
 
+class EscalationWindow {
+  static const List<String> validUnits = ['minutes', 'hours', 'days', 'weeks', 'months'];
+
+  final int value;
+  final String unit;
+
+  const EscalationWindow({required this.value, required this.unit});
+
+  Duration get duration {
+    final safeVal = value < 1 ? 1 : value;
+    switch (unit) {
+      case 'minutes':
+        return Duration(minutes: safeVal);
+      case 'hours':
+        return Duration(hours: safeVal);
+      case 'weeks':
+        return Duration(days: safeVal * 7);
+      case 'months':
+        return Duration(days: safeVal * 30);
+      case 'days':
+      default:
+        return Duration(days: safeVal);
+    }
+  }
+
+  String get displayLabel {
+    final singular = unit.endsWith('s') ? unit.substring(0, unit.length - 1) : unit;
+    return '$value ${value == 1 ? singular : unit}';
+  }
+
+  Map<String, dynamic> toMap() => {'value': value, 'unit': unit};
+
+  factory EscalationWindow.fromMap(
+    Map<String, dynamic> map, {
+    required int fallbackValue,
+    required String fallbackUnit,
+  }) {
+    final rawVal = map['value'];
+    final parsedVal = rawVal is num && rawVal.toInt() >= 1 ? rawVal.toInt() : fallbackValue;
+    final rawUnit = map['unit']?.toString().trim() ?? '';
+    final parsedUnit = validUnits.contains(rawUnit) ? rawUnit : fallbackUnit;
+    return EscalationWindow(value: parsedVal, unit: parsedUnit);
+  }
+}
+
 class UserProfile {
   final String uid;
   final String email;
@@ -10,9 +55,10 @@ class UserProfile {
 
   // Escalation windows (number on left, modifier on right)
   final int level2WindowValue;
-  final String level2WindowUnit; // 'hours', 'days', 'weeks', 'months'
+  final String level2WindowUnit; // 'minutes', 'hours', 'days', 'weeks', 'months'
   final int level3WindowValue;
-  final String level3WindowUnit; // 'hours', 'days', 'weeks', 'months'
+  final String level3WindowUnit; // 'minutes', 'hours', 'days', 'weeks', 'months'
+  final Map<int, EscalationWindow> escalationWindows;
 
   // Backward compatibility legacy fields
   final int level2ThresholdDays;
@@ -57,6 +103,7 @@ class UserProfile {
     this.level2WindowUnit = 'days',
     this.level3WindowValue = 1,
     this.level3WindowUnit = 'days',
+    this.escalationWindows = const {},
     this.level2ThresholdDays = 7,
     this.level3ThresholdDays = 1,
     this.twoWayTimeBlocking = true,
@@ -78,28 +125,29 @@ class UserProfile {
   });
 
   String getLevelName(int level) {
-    if (levelNames.containsKey(level)) {
+    if (levelNames.containsKey(level) && levelNames[level]!.trim().isNotEmpty) {
       return levelNames[level]!;
     }
     return 'Level $level';
   }
 
-  Duration getThresholdDuration(int level) {
-    int val = level == 3 ? level3WindowValue : level2WindowValue;
-    String unit = level == 3 ? level3WindowUnit : level2WindowUnit;
-
-    switch (unit) {
-      case 'hours':
-        return Duration(hours: val);
-      case 'weeks':
-        return Duration(days: val * 7);
-      case 'months':
-        return Duration(days: val * 30);
-      case 'days':
-      default:
-        return Duration(days: val);
+  EscalationWindow getEscalationWindow(int level) {
+    if (escalationWindows.containsKey(level)) {
+      return escalationWindows[level]!;
     }
+    if (level == 2) {
+      return EscalationWindow(value: level2WindowValue, unit: level2WindowUnit);
+    }
+    if (level == 3) {
+      return EscalationWindow(value: level3WindowValue, unit: level3WindowUnit);
+    }
+    if (level == 4) {
+      return const EscalationWindow(value: 12, unit: 'hours');
+    }
+    return const EscalationWindow(value: 4, unit: 'hours');
   }
+
+  Duration getThresholdDuration(int level) => getEscalationWindow(level).duration;
 
   bool isChoreFrozenInVacation(String? ruleId) {
     if (!vacationModeEnabled || ruleId == null) return false;
@@ -120,6 +168,7 @@ class UserProfile {
     String? level2WindowUnit,
     int? level3WindowValue,
     String? level3WindowUnit,
+    Map<int, EscalationWindow>? escalationWindows,
     int? level2ThresholdDays,
     int? level3ThresholdDays,
     bool? twoWayTimeBlocking,
@@ -142,6 +191,14 @@ class UserProfile {
     bool? reviewTasksPersistent,
     bool? appOpenedToday,
   }) {
+    final nextWindows = Map<int, EscalationWindow>.from(escalationWindows ?? this.escalationWindows);
+    final nextL2Val = level2WindowValue ?? nextWindows[2]?.value ?? this.level2WindowValue;
+    final nextL2Unit = level2WindowUnit ?? nextWindows[2]?.unit ?? this.level2WindowUnit;
+    final nextL3Val = level3WindowValue ?? nextWindows[3]?.value ?? this.level3WindowValue;
+    final nextL3Unit = level3WindowUnit ?? nextWindows[3]?.unit ?? this.level3WindowUnit;
+    nextWindows[2] = EscalationWindow(value: nextL2Val, unit: nextL2Unit);
+    nextWindows[3] = EscalationWindow(value: nextL3Val, unit: nextL3Unit);
+
     return UserProfile(
       uid: uid ?? this.uid,
       email: email ?? this.email,
@@ -149,10 +206,11 @@ class UserProfile {
       maxInProgressTasks: maxInProgressTasks ?? this.maxInProgressTasks,
       numImportanceLevels: numImportanceLevels ?? this.numImportanceLevels,
       levelNames: levelNames ?? this.levelNames,
-      level2WindowValue: level2WindowValue ?? this.level2WindowValue,
-      level2WindowUnit: level2WindowUnit ?? this.level2WindowUnit,
-      level3WindowValue: level3WindowValue ?? this.level3WindowValue,
-      level3WindowUnit: level3WindowUnit ?? this.level3WindowUnit,
+      level2WindowValue: nextL2Val,
+      level2WindowUnit: nextL2Unit,
+      level3WindowValue: nextL3Val,
+      level3WindowUnit: nextL3Unit,
+      escalationWindows: nextWindows,
       level2ThresholdDays: level2ThresholdDays ?? this.level2ThresholdDays,
       level3ThresholdDays: level3ThresholdDays ?? this.level3ThresholdDays,
       twoWayTimeBlocking: twoWayTimeBlocking ?? this.twoWayTimeBlocking,
@@ -177,6 +235,10 @@ class UserProfile {
   }
 
   Map<String, dynamic> toMap() {
+    final serializedWindows = <String, dynamic>{};
+    for (int lvl = 2; lvl <= 5; lvl++) {
+      serializedWindows[lvl.toString()] = getEscalationWindow(lvl).toMap();
+    }
     return {
       'uid': uid,
       'email': email,
@@ -188,6 +250,7 @@ class UserProfile {
       'level2WindowUnit': level2WindowUnit,
       'level3WindowValue': level3WindowValue,
       'level3WindowUnit': level3WindowUnit,
+      'escalationWindows': serializedWindows,
       'level2ThresholdDays': level2ThresholdDays,
       'level3ThresholdDays': level3ThresholdDays,
       'twoWayTimeBlocking': twoWayTimeBlocking,
@@ -221,47 +284,100 @@ class UserProfile {
       final m = map['levelNames'] as Map;
       m.forEach((k, v) {
         final intKey = int.tryParse(k.toString());
-        if (intKey != null && v != null) {
-          parsedLevelNames[intKey] = v.toString();
+        final text = v?.toString().trim() ?? '';
+        if (intKey != null && text.isNotEmpty) {
+          parsedLevelNames[intKey] = text;
         }
       });
     }
 
-    final l2Days = map['level2ThresholdDays'] is int ? map['level2ThresholdDays'] as int : 7;
-    final l3Days = map['level3ThresholdDays'] is int ? map['level3ThresholdDays'] as int : 1;
+    int parsePosInt(dynamic raw, int fallback, {int min = 1, int max = 1000}) {
+      if (raw is num) {
+        final v = raw.toInt();
+        if (v >= min) return v > max ? max : v;
+      }
+      return fallback;
+    }
+
+    String parseUnit(dynamic raw, String fallback) {
+      final s = raw?.toString().trim() ?? '';
+      return EscalationWindow.validUnits.contains(s) ? s : fallback;
+    }
+
+    final l2Days = parsePosInt(map['level2ThresholdDays'], 7);
+    final l3Days = parsePosInt(map['level3ThresholdDays'], 1);
+
+    var l2Val = parsePosInt(map['level2WindowValue'], l2Days);
+    var l2Unit = parseUnit(map['level2WindowUnit'], 'days');
+    var l3Val = parsePosInt(map['level3WindowValue'], l3Days);
+    var l3Unit = parseUnit(map['level3WindowUnit'], 'days');
+
+    final parsedWindows = <int, EscalationWindow>{
+      2: EscalationWindow(value: l2Val, unit: l2Unit),
+      3: EscalationWindow(value: l3Val, unit: l3Unit),
+      4: const EscalationWindow(value: 12, unit: 'hours'),
+      5: const EscalationWindow(value: 4, unit: 'hours'),
+    };
+    if (map['escalationWindows'] is Map) {
+      final wMap = map['escalationWindows'] as Map;
+      wMap.forEach((k, v) {
+        final lvl = int.tryParse(k.toString());
+        if (lvl != null && lvl >= 2 && lvl <= 5 && v is Map) {
+          final fallback = parsedWindows[lvl]!;
+          parsedWindows[lvl] = EscalationWindow.fromMap(
+            Map<String, dynamic>.from(v),
+            fallbackValue: fallback.value,
+            fallbackUnit: fallback.unit,
+          );
+        }
+      });
+      l2Val = parsedWindows[2]!.value;
+      l2Unit = parsedWindows[2]!.unit;
+      l3Val = parsedWindows[3]!.value;
+      l3Unit = parsedWindows[3]!.unit;
+    }
 
     final priorHours = map['notifyPriorHours'] is num ? (map['notifyPriorHours'] as num).toInt() : 1;
     final priorMins = map['notifyPriorMinutes'] is num
         ? (map['notifyPriorMinutes'] as num).toInt()
         : priorHours * 60;
 
+    final rawVacStart = map['vacationStartDate']?.toString() ?? '';
+    final rawVacEnd = map['vacationEndDate']?.toString() ?? '';
+    final vacFilter = map['vacationNotificationFilter']?.toString() ?? '';
+    final tierFilter = map['notifyForTier']?.toString() ?? '';
+    final reviewTime = map['reviewTasksTime']?.toString() ?? '';
+
     return UserProfile(
-      uid: map['uid'] ?? 'default_user',
-      email: map['email'] ?? 'user@antigravity.dev',
-      displayName: map['displayName'] ?? 'Alex Morgan',
-      maxInProgressTasks: map['maxInProgressTasks'] is int ? map['maxInProgressTasks'] : 3,
-      numImportanceLevels: map['numImportanceLevels'] is int ? map['numImportanceLevels'] : 3,
+      uid: (map['uid']?.toString() ?? '').isNotEmpty ? map['uid'].toString() : 'default_user',
+      email: map['email']?.toString() ?? 'user@antigravity.dev',
+      displayName: map['displayName']?.toString() ?? 'Alex Morgan',
+      maxInProgressTasks: parsePosInt(map['maxInProgressTasks'], 3, min: 1, max: 20),
+      numImportanceLevels: parsePosInt(map['numImportanceLevels'], 3, min: 3, max: 5),
       levelNames: parsedLevelNames,
-      level2WindowValue: map['level2WindowValue'] is int ? map['level2WindowValue'] : l2Days,
-      level2WindowUnit: map['level2WindowUnit'] ?? 'days',
-      level3WindowValue: map['level3WindowValue'] is int ? map['level3WindowValue'] : l3Days,
-      level3WindowUnit: map['level3WindowUnit'] ?? 'days',
+      level2WindowValue: l2Val,
+      level2WindowUnit: l2Unit,
+      level3WindowValue: l3Val,
+      level3WindowUnit: l3Unit,
+      escalationWindows: parsedWindows,
       level2ThresholdDays: l2Days,
       level3ThresholdDays: l3Days,
       twoWayTimeBlocking: map['twoWayTimeBlocking'] != false,
-      geminiApiKey: map['geminiApiKey'],
+      geminiApiKey: map['geminiApiKey']?.toString(),
       vacationModeEnabled: map['vacationModeEnabled'] == true,
-      vacationStartDate: map['vacationStartDate'] != null ? DateTime.tryParse(map['vacationStartDate']) : null,
-      vacationEndDate: map['vacationEndDate'] != null ? DateTime.tryParse(map['vacationEndDate']) : null,
-      vacationFrozenChoreIds: map['vacationFrozenChoreIds'] is List ? List<String>.from(map['vacationFrozenChoreIds']) : const [],
-      vacationNotificationFilter: map['vacationNotificationFilter'] ?? 'urgent_only',
+      vacationStartDate: rawVacStart.isNotEmpty ? DateTime.tryParse(rawVacStart) : null,
+      vacationEndDate: rawVacEnd.isNotEmpty ? DateTime.tryParse(rawVacEnd) : null,
+      vacationFrozenChoreIds: map['vacationFrozenChoreIds'] is List
+          ? List<String>.from(map['vacationFrozenChoreIds'].map((e) => e.toString()))
+          : const [],
+      vacationNotificationFilter: vacFilter.isNotEmpty ? vacFilter : 'urgent_only',
       notificationsEnabled: map['notificationsEnabled'] != false,
       notifyPriorHours: priorHours,
       notifyPriorMinutes: priorMins,
-      notifyForTier: map['notifyForTier'] ?? 'all',
+      notifyForTier: tierFilter.isNotEmpty ? tierFilter : 'all',
       notifyForOverdue: map['notifyForOverdue'] != false,
       reviewTasksEnabled: map['reviewTasksEnabled'] != false,
-      reviewTasksTime: map['reviewTasksTime'] ?? '09:00',
+      reviewTasksTime: reviewTime.isNotEmpty ? reviewTime : '09:00',
       reviewTasksPersistent: map['reviewTasksPersistent'] != false,
       appOpenedToday: map['appOpenedToday'] != false,
     );

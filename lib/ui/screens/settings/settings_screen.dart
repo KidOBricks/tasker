@@ -5,10 +5,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../../data/services/calendar_integration_service.dart';
 import '../../../data/services/database_service.dart';
+import '../../../domain/models/user_profile.dart';
 import '../../../state/app_state.dart';
 import '../../../state/auth_state.dart';
 import '../../../state/integration_state.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/duration_wheel_picker.dart';
 import 'auto_scheduled_tasks_screen.dart';
 
 class SettingsScreen extends ConsumerWidget {
@@ -452,12 +454,22 @@ class SettingsScreen extends ConsumerWidget {
                           ElevatedButton(
                             onPressed: () async {
                               final auth = ref.read(authProvider);
-                              await ref.read(databaseServiceProvider).performCloudSync(userId: auth?.id);
-                              if (context.mounted) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(content: Text('Cloud sync complete')),
-                                );
-                              }
+                              final svc = ref.read(databaseServiceProvider);
+                              await svc.performCloudSync(userId: auth?.id);
+                              if (!context.mounted) return;
+                              final status = svc.status;
+                              final msg = status == SyncStatus.synced
+                                  ? 'Cloud sync complete'
+                                  : (svc.lastError != null
+                                      ? 'Sync failed: ${svc.lastError}'
+                                      : 'Offline — changes queued locally');
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(msg),
+                                  backgroundColor:
+                                      status == SyncStatus.synced ? null : AppColors.overdue,
+                                ),
+                              );
                             },
                             child: const Text('Sync now'),
                           ),
@@ -623,172 +635,7 @@ class SettingsScreen extends ConsumerWidget {
                     padding: EdgeInsets.symmetric(vertical: 16),
                     child: Divider(),
                   ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Importance levels', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
-                            SizedBox(height: 2),
-                            Text('Tier hierarchy depth (3, 4, or 5)', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
-                          ],
-                        ),
-                      ),
-                      DropdownButton<int>(
-                        value: profile.numImportanceLevels,
-                        dropdownColor: AppColors.surface,
-                        items: [3, 4, 5].map((lvl) => DropdownMenuItem(value: lvl, child: Text('$lvl levels'))).toList(),
-                        onChanged: (val) {
-                          if (val != null) {
-                            ref.read(profileProvider.notifier).updateSettings(numImportanceLevels: val);
-                          }
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Level labels',
-                    style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13, color: AppColors.textSecondary),
-                  ),
-                  const SizedBox(height: 8),
-                  for (int lvl = profile.numImportanceLevels; lvl >= 1; lvl--)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 28,
-                            height: 28,
-                            alignment: Alignment.center,
-                            decoration: BoxDecoration(
-                              color: AppColors.surfaceLight,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: AppColors.border),
-                            ),
-                            child: Text(
-                              '$lvl',
-                              style: AppTheme.mono(12, color: AppColors.textPrimary, weight: FontWeight.w500),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: TextFormField(
-                              initialValue: profile.getLevelName(lvl),
-                              style: const TextStyle(fontSize: 13),
-                              onFieldSubmitted: (text) {
-                                if (text.trim().isNotEmpty) {
-                                  ref.read(profileProvider.notifier).updateLevelName(lvl, text.trim());
-                                }
-                              },
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 16),
-                    child: Divider(),
-                  ),
-                  const Text(
-                    'Escalation windows',
-                    style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13, color: AppColors.textSecondary),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Escalate to level 2', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
-                            Text('When due date is within', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
-                          ],
-                        ),
-                      ),
-                      Row(
-                        children: [
-                          DropdownButton<int>(
-                            value: profile.level2WindowValue,
-                            dropdownColor: AppColors.surface,
-                            items: [1, 2, 3, 5, 7, 10, 14, 21, 30]
-                                .map((v) => DropdownMenuItem(value: v, child: Text('$v')))
-                                .toList(),
-                            onChanged: (val) {
-                              if (val != null) {
-                                ref.read(profileProvider.notifier).updateSettings(level2WindowValue: val);
-                              }
-                            },
-                          ),
-                          const SizedBox(width: 8),
-                          DropdownButton<String>(
-                            value: profile.level2WindowUnit,
-                            dropdownColor: AppColors.surface,
-                            items: const [
-                              DropdownMenuItem(value: 'hours', child: Text('hours')),
-                              DropdownMenuItem(value: 'days', child: Text('days')),
-                              DropdownMenuItem(value: 'weeks', child: Text('weeks')),
-                              DropdownMenuItem(value: 'months', child: Text('months')),
-                            ],
-                            onChanged: (val) {
-                              if (val != null) {
-                                ref.read(profileProvider.notifier).updateSettings(level2WindowUnit: val);
-                              }
-                            },
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      const Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Escalate to level 3', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13)),
-                            Text('When due date is within', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
-                          ],
-                        ),
-                      ),
-                      Row(
-                        children: [
-                          DropdownButton<int>(
-                            value: profile.level3WindowValue,
-                            dropdownColor: AppColors.surface,
-                            items: [1, 2, 3, 4, 6, 12, 24, 48]
-                                .map((v) => DropdownMenuItem(value: v, child: Text('$v')))
-                                .toList(),
-                            onChanged: (val) {
-                              if (val != null) {
-                                ref.read(profileProvider.notifier).updateSettings(level3WindowValue: val);
-                              }
-                            },
-                          ),
-                          const SizedBox(width: 8),
-                          DropdownButton<String>(
-                            value: profile.level3WindowUnit,
-                            dropdownColor: AppColors.surface,
-                            items: const [
-                              DropdownMenuItem(value: 'hours', child: Text('hours')),
-                              DropdownMenuItem(value: 'days', child: Text('days')),
-                              DropdownMenuItem(value: 'weeks', child: Text('weeks')),
-                            ],
-                            onChanged: (val) {
-                              if (val != null) {
-                                ref.read(profileProvider.notifier).updateSettings(level3WindowUnit: val);
-                              }
-                            },
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                  _PriorityLevelsEditor(profile: profile),
                 ],
               ),
             ),
@@ -1307,6 +1154,272 @@ class _TrustedTaskgiversSectionState extends ConsumerState<_TrustedTaskgiversSec
                         }).toList(),
                       ),
           ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PriorityLevelsEditor extends ConsumerStatefulWidget {
+  final UserProfile profile;
+
+  const _PriorityLevelsEditor({required this.profile});
+
+  @override
+  ConsumerState<_PriorityLevelsEditor> createState() => _PriorityLevelsEditorState();
+}
+
+class _PriorityLevelsEditorState extends ConsumerState<_PriorityLevelsEditor> {
+  late int _draftNumLevels;
+  late Map<int, TextEditingController> _controllers;
+  late Map<int, EscalationWindow> _draftWindows;
+  bool _dirty = false;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controllers = {
+      for (int lvl = 1; lvl <= 5; lvl++)
+        lvl: TextEditingController(text: widget.profile.getLevelName(lvl)),
+    };
+    _syncFromProfile(widget.profile);
+  }
+
+  @override
+  void didUpdateWidget(covariant _PriorityLevelsEditor oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!_dirty && oldWidget.profile != widget.profile) {
+      _syncFromProfile(widget.profile);
+    }
+  }
+
+  void _syncFromProfile(UserProfile p) {
+    _draftNumLevels = p.numImportanceLevels.clamp(3, 5);
+    for (int lvl = 1; lvl <= 5; lvl++) {
+      final text = p.getLevelName(lvl);
+      if (_controllers[lvl]!.text != text) {
+        _controllers[lvl]!.text = text;
+      }
+    }
+    _draftWindows = {
+      for (int lvl = 2; lvl <= 5; lvl++) lvl: p.getEscalationWindow(lvl),
+    };
+  }
+
+  @override
+  void dispose() {
+    for (final c in _controllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  Future<void> _pickWindow(int level) async {
+    final current = _draftWindows[level] ?? widget.profile.getEscalationWindow(level);
+    final label = _controllers[level]?.text.trim().isNotEmpty == true
+        ? _controllers[level]!.text.trim()
+        : 'Level $level';
+    final picked = await showDurationWheelPicker(
+      context,
+      title: 'Escalate to $label',
+      initial: current,
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        _draftWindows[level] = picked;
+        _dirty = true;
+      });
+    }
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    setState(() => _saving = true);
+
+    final nextNames = <int, String>{};
+    for (int lvl = 1; lvl <= 5; lvl++) {
+      final typed = _controllers[lvl]!.text.trim();
+      nextNames[lvl] = typed.isNotEmpty ? typed : widget.profile.getLevelName(lvl);
+    }
+
+    final status = await ref.read(profileProvider.notifier).savePrioritySettingsAndReindex(
+          numImportanceLevels: _draftNumLevels,
+          levelNames: nextNames,
+          escalationWindows: Map<int, EscalationWindow>.from(_draftWindows),
+        );
+
+    if (!mounted) return;
+    setState(() {
+      _saving = false;
+      _dirty = false;
+    });
+
+    final svc = ref.read(databaseServiceProvider);
+    final ok = status == SyncStatus.synced;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          ok
+              ? 'Priority levels saved, tasks reindexed & synced to cloud'
+              : (svc.lastError != null
+                  ? 'Saved & reindexed locally; sync error: ${svc.lastError}'
+                  : 'Saved & reindexed locally (offline)'),
+        ),
+        backgroundColor: ok ? null : AppColors.overdue,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Importance levels', style: TextStyle(fontWeight: FontWeight.w500, fontSize: 14)),
+                  SizedBox(height: 2),
+                  Text('Tier hierarchy depth (3, 4, or 5)', style: TextStyle(fontSize: 12, color: AppColors.textMuted)),
+                ],
+              ),
+            ),
+            DropdownButton<int>(
+              value: _draftNumLevels,
+              dropdownColor: AppColors.surface,
+              items: [3, 4, 5].map((lvl) => DropdownMenuItem(value: lvl, child: Text('$lvl levels'))).toList(),
+              onChanged: (val) {
+                if (val != null) {
+                  setState(() {
+                    _draftNumLevels = val;
+                    _dirty = true;
+                  });
+                }
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        const Text(
+          'Level labels',
+          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13, color: AppColors.textSecondary),
+        ),
+        const SizedBox(height: 8),
+        for (int lvl = _draftNumLevels; lvl >= 1; lvl--)
+          Padding(
+            key: ValueKey('priority_level_row_$lvl'),
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    color: AppColors.surfaceLight,
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: AppColors.border),
+                  ),
+                  child: Text(
+                    '$lvl',
+                    style: AppTheme.mono(12, color: AppColors.textPrimary, weight: FontWeight.w500),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: TextFormField(
+                    key: ValueKey('priority_level_input_$lvl'),
+                    controller: _controllers[lvl],
+                    style: const TextStyle(fontSize: 13),
+                    onChanged: (_) {
+                      if (!_dirty) setState(() => _dirty = true);
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        const Padding(
+          padding: EdgeInsets.symmetric(vertical: 16),
+          child: Divider(),
+        ),
+        const Text(
+          'Escalation windows',
+          style: TextStyle(fontWeight: FontWeight.w500, fontSize: 13, color: AppColors.textSecondary),
+        ),
+        const SizedBox(height: 4),
+        const Text(
+          'When a task due date is within this window, escalate automatically.',
+          style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+        ),
+        const SizedBox(height: 12),
+        for (int lvl = 2; lvl <= _draftNumLevels; lvl++) ...[
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Escalate to level $lvl',
+                      style: const TextStyle(fontWeight: FontWeight.w500, fontSize: 13),
+                    ),
+                    Text(
+                      _controllers[lvl]?.text.trim().isNotEmpty == true
+                          ? _controllers[lvl]!.text.trim()
+                          : 'Level $lvl',
+                      style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                key: ValueKey('escalation_picker_lvl_$lvl'),
+                onPressed: () => _pickWindow(lvl),
+                icon: const Icon(Icons.tune, size: 15),
+                label: Text(
+                  (_draftWindows[lvl] ?? widget.profile.getEscalationWindow(lvl)).displayLabel,
+                  style: AppTheme.mono(12, color: AppColors.textPrimary),
+                ),
+              ),
+            ],
+          ),
+          if (lvl < _draftNumLevels) const SizedBox(height: 10),
+        ],
+        const SizedBox(height: 18),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            if (_dirty)
+              const Padding(
+                padding: EdgeInsets.only(right: 12),
+                child: Text(
+                  'Unsaved changes',
+                  style: TextStyle(fontSize: 12, color: AppColors.level2, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ElevatedButton.icon(
+              key: const ValueKey('save_priority_settings_btn'),
+              onPressed: _saving ? null : _save,
+              icon: _saving
+                  ? const SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.cloud_upload_outlined, size: 16),
+              label: Text(_saving ? 'Saving & syncing...' : 'Save & sync priority levels'),
+            ),
+          ],
         ),
       ],
     );

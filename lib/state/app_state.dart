@@ -9,6 +9,7 @@ import '../domain/models/task_history_item.dart';
 import '../domain/engine/priority_engine.dart';
 import '../domain/engine/recurrence_engine.dart';
 import '../data/repositories/task_repository.dart';
+import '../data/services/database_service.dart';
 import '../services/gemini_service.dart';
 import 'auth_state.dart';
 import 'integration_state.dart';
@@ -44,6 +45,7 @@ class ProfileNotifier extends Notifier<UserProfile> {
     String? level2WindowUnit,
     int? level3WindowValue,
     String? level3WindowUnit,
+    Map<int, EscalationWindow>? escalationWindows,
     int? level2ThresholdDays,
     int? level3ThresholdDays,
     bool? twoWayTimeBlocking,
@@ -74,6 +76,7 @@ class ProfileNotifier extends Notifier<UserProfile> {
       level2WindowUnit: level2WindowUnit,
       level3WindowValue: level3WindowValue,
       level3WindowUnit: level3WindowUnit,
+      escalationWindows: escalationWindows,
       level2ThresholdDays: level2ThresholdDays,
       level3ThresholdDays: level3ThresholdDays,
       twoWayTimeBlocking: twoWayTimeBlocking,
@@ -104,6 +107,54 @@ class ProfileNotifier extends Notifier<UserProfile> {
     final updatedMap = Map<int, String>.from(state.levelNames);
     updatedMap[level] = name;
     await updateSettings(levelNames: updatedMap);
+  }
+
+  /// Persists priority levels, labels, and escalation windows, reindexes all
+  /// tasks and recurrence rules, and pushes changes to PocketBase.
+  Future<SyncStatus> savePrioritySettingsAndReindex({
+    required int numImportanceLevels,
+    required Map<int, String> levelNames,
+    required Map<int, EscalationWindow> escalationWindows,
+  }) async {
+    final clampedCount = numImportanceLevels.clamp(3, 5);
+    final updated = state.copyWith(
+      numImportanceLevels: clampedCount,
+      levelNames: levelNames,
+      escalationWindows: escalationWindows,
+    );
+    final repo = ref.read(repositoryProvider);
+    await repo.saveProfile(updated);
+
+    final now = DateTime.now();
+    final reindexedTasks = repo
+        .getTasks()
+        .map((t) => PriorityEngine.evaluate(t, updated, currentTime: now))
+        .toList();
+    await repo.saveTasks(reindexedTasks);
+
+    final existingRules = repo.getRecurrenceRules();
+    var rulesChanged = false;
+    final reindexedRules = existingRules.map((r) {
+      final clamped = r.baseImportance.clamp(1, updated.numImportanceLevels);
+      if (clamped != r.baseImportance) {
+        rulesChanged = true;
+        return r.copyWith(baseImportance: clamped);
+      }
+      return r;
+    }).toList();
+    if (rulesChanged) {
+      await repo.saveRecurrenceRules(reindexedRules);
+      ref.invalidate(recurrenceRulesProvider);
+    }
+
+    // Update state after repository persistence so TasksNotifier.build() reads reindexed tasks.
+    state = updated;
+
+    final user = ref.read(authProvider);
+    if (user == null) return SyncStatus.offline;
+    final dbService = ref.read(databaseServiceProvider);
+    await dbService.performCloudSync(userId: user.id);
+    return dbService.status;
   }
 
   Future<void> toggleVacationChore(String choreId) async {
@@ -232,6 +283,22 @@ class RecurrenceRulesNotifier extends Notifier<List<RecurrenceRule>> {
     state = updated;
     await ref.read(repositoryProvider).saveRecurrenceRules(updated);
     _triggerBackgroundSync(ref);
+  }
+
+  Future<void> reindexForProfile(UserProfile profile) async {
+    final existing = ref.read(repositoryProvider).getRecurrenceRules();
+    var changed = false;
+    final updated = existing.map((r) {
+      final clamped = r.baseImportance.clamp(1, profile.numImportanceLevels);
+      if (clamped != r.baseImportance) {
+        changed = true;
+        return r.copyWith(baseImportance: clamped);
+      }
+      return r;
+    }).toList();
+    if (!changed) return;
+    state = updated;
+    await ref.read(repositoryProvider).saveRecurrenceRules(updated);
   }
 }
 
@@ -564,6 +631,14 @@ class TasksNotifier extends Notifier<List<TaskItem>> {
     }
 
     ref.read(taskHistoryProvider.notifier).removeEntry(historyId);
+  }
+
+  Future<void> reindexForProfile(UserProfile profile) async {
+    final now = DateTime.now();
+    final current = ref.read(repositoryProvider).getTasks();
+    final reindexed = current.map((t) => PriorityEngine.evaluate(t, profile, currentTime: now)).toList();
+    state = reindexed;
+    await ref.read(repositoryProvider).saveTasks(reindexed);
   }
 }
 

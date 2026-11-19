@@ -35,6 +35,32 @@ After reviewing Firebase/client-side limitations, the architecture was rebuilt o
    - Populate `/opt/tasker/.env` (`GOOGLE_CLIENT_*`, `MICROSOFT_CLIENT_*`, `LLM_PROVIDER`, `LLM_API_KEY`) and restart `tasker.service`.
 4. **Configure GitHub Actions CD (optional)**: Set `TASKER_API_URL`, `OCI_DEPLOY_ENABLED`, `OCI_HOST`, `OCI_USER`, and `OCI_SSH_KEY` for automated Web/Android/Windows builds and deploys.
 
+### Planned Feature Additions & Fixes
+- **Gmail Integration (Multi-Account & AI Auto-Scan)**:
+  - Support syncing multiple Gmail accounts.
+  - Automatically scan all connected inboxes on app open and manual refresh for new task ideas.
+  - Identify and ignore spam and non-task-based emails.
+- **Calendar-to-Task Flow (Edit & Due-Time Picker)**:
+  - Tapping an agenda item opens the suggested prep task so it can be tapped to edit before adding to the task list.
+  - Add a dedicated button/tap target to edit only the due time.
+  - Use a 2-part scroller wheel (numbers on the left, units like minutes/hours/days on the right) with a corner button to switch to absolute time selection.
+- **Calendar Page Layout & Views**:
+  - Remove the "Connected Calendars" section from the top of the Calendar page (keep accessible in Settings only).
+  - Organize the agenda feed by day with collapsible/expandable dropdowns per day.
+  - Add a toggle to switch between Day/Agenda, Week, and Month views.
+- **[CRITICAL] Bug Fix: Task Deletion Breaks Cloud Sync** (see [`docs/bug-diagnosis-and-fixes.md`](bug-diagnosis-and-fixes.md)):
+  - **Root cause**: Investigate why `deleteTask()` + `saveTasks()` causes PocketBase sync to fail/stall and leave the UI stuck on "offline cache" even after manual sync reports complete (while undoing deletion restores sync).
+  - **Solution**: Implement soft-delete (`deletedAt` tombstone) in Drift & PocketBase so deletions sync cleanly and Undo restores the task without conflict. Ensure sync errors surface clearly instead of silently falling back to "offline cache".
+- **[CRITICAL] Priority Levels Cloud Sync, Escalation Picker & Trusted Taskgivers**:
+  - Add a **Save** button when editing the number of priority levels, their labels, and movement rules that pushes changes to PocketBase and reindexes all tasks (clamping out-of-range levels to the new max level).
+  - Fix the syncing bug that occurs when adding more priority levels.
+  - Replace the preset-only "when to move to other priority level" setting with the same 2-part scroll wheel system.
+  - Ensure trusted taskgivers see the user's configured priority level count and labels both when assigning a task to the user and when viewing shared tasks from them.
+- **Sync Status Indicator**:
+  - Replace the "offline cache" label at the top of the screen with a clear offline/not-syncing indicator (e.g., red text with an exclamation icon) when offline or failing to sync.
+- **Bug Fix (`All` Category)**:
+  - Tasks created in the `All` category must appear in all categories.
+
 ### Deferred to Phase 2 (Future)
 - Two-way calendar time-blocking write-back (exporting scheduled tasks back into Google Calendar / Outlook).
 - Custom domain setup (optional upgrade from `sslip.io`).
