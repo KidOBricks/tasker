@@ -48,15 +48,15 @@ After reviewing Firebase/client-side limitations, the architecture was rebuilt o
   - Remove the "Connected Calendars" section from the top of the Calendar page (keep accessible in Settings only).
   - Organize the agenda feed by day with collapsible/expandable dropdowns per day.
   - Add a toggle to switch between Day/Agenda, Week, and Month views.
-- **[CRITICAL] Bug Fix: Task Deletion Breaks Cloud Sync** (see [`docs/bug-diagnosis-and-fixes.md`](bug-diagnosis-and-fixes.md)):
+- **[DONE in `ff0590f`, 2026-11-19] Bug Fix: Task Deletion Breaks Cloud Sync** (see [`docs/bug-diagnosis-and-fixes.md`](bug-diagnosis-and-fixes.md)):
   - **Root cause**: Investigate why `deleteTask()` + `saveTasks()` causes PocketBase sync to fail/stall and leave the UI stuck on "offline cache" even after manual sync reports complete (while undoing deletion restores sync).
   - **Solution**: Implement soft-delete (`deletedAt` tombstone) in Drift & PocketBase so deletions sync cleanly and Undo restores the task without conflict. Ensure sync errors surface clearly instead of silently falling back to "offline cache".
-- **[CRITICAL] Priority Levels Cloud Sync, Escalation Picker & Trusted Taskgivers**:
+- **[DONE in `ff0590f`, 2026-11-19] Priority Levels Cloud Sync, Escalation Picker & Trusted Taskgivers**:
   - Add a **Save** button when editing the number of priority levels, their labels, and movement rules that pushes changes to PocketBase and reindexes all tasks (clamping out-of-range levels to the new max level).
   - Fix the syncing bug that occurs when adding more priority levels.
   - Replace the preset-only "when to move to other priority level" setting with the same 2-part scroll wheel system.
   - Ensure trusted taskgivers see the user's configured priority level count and labels both when assigning a task to the user and when viewing shared tasks from them.
-- **Sync Status Indicator**:
+- **[DONE in `ff0590f`] Sync Status Indicator**:
   - Replace the "offline cache" label at the top of the screen with a clear offline/not-syncing indicator (e.g., red text with an exclamation icon) when offline or failing to sync.
 - **Bug Fix (`All` Category)**:
   - Tasks created in the `All` category must appear in all categories.
